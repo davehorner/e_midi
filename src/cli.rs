@@ -30,6 +30,18 @@ pub struct Cli {
     /// Start scan segments at random positions
     #[arg(long)]
     pub scan_random_start: bool,
+    
+    /// Use TUI mode with split panels (menu + playback info)
+    #[arg(short = 't', long)]
+    pub tui: bool,
+    
+    /// Add MIDI files to the dynamic playlist
+    #[arg(long = "add-song")]
+    pub add_songs: Vec<std::path::PathBuf>,
+    
+    /// Scan directories and add all MIDI files to the dynamic playlist
+    #[arg(long = "scan-directory")]
+    pub scan_directories: Vec<std::path::PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -56,8 +68,7 @@ pub enum Commands {
     
     /// Play songs in random order
     PlayRandom,
-    
-    /// Scan mode - play portions of songs
+      /// Scan mode - play portions of songs
     Scan {
         /// Scan mode: 1=sequential, 2=random positions, 3=progressive
         #[arg(long, default_value = "1")]
@@ -65,8 +76,12 @@ pub enum Commands {
         
         /// Duration of each scan segment in seconds
         #[arg(long)]
-        duration: Option<u32>,
-    },
+        duration: Option<u32>,    },
+      /// List only dynamically loaded songs
+    ListDynamic,
+    
+    /// Clear all dynamically loaded songs
+    ClearDynamic,
     
     /// Run in interactive mode (default)
     Interactive,
@@ -75,8 +90,7 @@ pub enum Commands {
 pub fn run_cli() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     
-    let mut player = MidiPlayer::new()?;
-      // Apply CLI configuration
+    let mut player = MidiPlayer::new()?;    // Apply CLI configuration
     {
         let config = player.get_config_mut();
         config.loop_playlist = cli.loop_playlist;
@@ -84,6 +98,20 @@ pub fn run_cli() -> Result<(), Box<dyn Error>> {
         config.delay_between_songs_ms = cli.delay_between_songs * 1000;
         config.scan_segment_duration_ms = cli.scan_duration * 1000;
         config.scan_random_start = cli.scan_random_start;
+    }
+    
+    // Process global options to add songs/directories to dynamic playlist
+    for path in &cli.add_songs {
+        if let Err(e) = player.add_song_from_file(path) {
+            eprintln!("❌ Failed to add {}: {}", path.display(), e);
+        }
+    }
+    
+    for path in &cli.scan_directories {
+        match player.scan_directory(path) {
+            Ok(count) => println!("✅ Added {} songs from {}", count, path.display()),
+            Err(e) => eprintln!("❌ Failed to scan {}: {}", path.display(), e),
+        }
     }
     
     match cli.command {
@@ -121,15 +149,24 @@ pub fn run_cli() -> Result<(), Box<dyn Error>> {
         
         Some(Commands::PlayRandom) => {
             player.play_random_song()?;
-        },
-          Some(Commands::Scan { mode, duration }) => {
+        },        Some(Commands::Scan { mode, duration }) => {
             let scan_duration = duration.unwrap_or(cli.scan_duration);
             player.scan_mode_non_interactive(scan_duration, mode)?;
         },
+          Some(Commands::ListDynamic) => {
+            player.list_dynamic_songs();
+        },
         
-        Some(Commands::Interactive) | None => {
-            // Default to interactive mode
-            player.run_interactive()?;
+        Some(Commands::ClearDynamic) => {
+            player.clear_dynamic_songs();
+        },
+          Some(Commands::Interactive) | None => {
+            // Choose between TUI and CLI mode
+            if cli.tui {
+                player.run_tui_mode()?;
+            } else {
+                player.run_interactive()?;
+            }
         },
     }
     

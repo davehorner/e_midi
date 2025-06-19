@@ -18,7 +18,11 @@ ansi_term = "0.12.1"
 midir = "0.10.1"
 rimd = "0.0.1"
 midly = "0.5.3"
+crossterm = "0.29.0"
+ratatui = "0.28"
 clap = { version = "4.0", features = ["derive"] }
+ctrlc = "3.4"
+iceoryx2 = "0.6.1"
 
 [build-dependencies]
 midly = "0.5.3"
