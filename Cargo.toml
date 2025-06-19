@@ -1,0 +1,36 @@
+[package]
+name = "e_midi"
+version = "0.2.0"
+edition = "2021"
+authors = ["David Horner <david.horner@example.com>"]
+description = "A feature-rich interactive MIDI player with advanced playback options, looping, and scan modes"
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/davidhorner/e_midi"
+repository = "https://github.com/davidhorner/e_midi"
+documentation = "https://docs.rs/e_midi"
+keywords = ["midi", "music", "audio", "player", "interactive"]
+categories = ["multimedia::audio", "command-line-utilities"]
+rust-version = "1.70"
+
+[dependencies]
+ansi_term = "0.12.1"
+midir = "0.10.1"
+rimd = "0.0.1"
+midly = "0.5.3"
+
+[build-dependencies]
+midly = "0.5.3"
+rimd = "0.0.1"
+
+# Optional features for future extensions
+[features]
+default = []
+gui = []  # Future GUI support
+recording = []  # Future MIDI recording
+network = []  # Future network streaming
+
+# Package configuration for publishing
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

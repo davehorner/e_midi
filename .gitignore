@@ -1,0 +1,35 @@
+# Rust
+/target/
+Cargo.lock
+*.rlib
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated files
+/src/midi_data.rs
+
+# Test files
+test_*.txt
+run_*.txt
+*.log
+
+# MIDI files (optional - you may want to include these)
+# *.mid
+# *.midi
+
+# Build artifacts
+/out/
+
+# Backup files
+*.bak
+*.orig
