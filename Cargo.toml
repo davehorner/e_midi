@@ -18,6 +18,7 @@ ansi_term = "0.12.1"
 midir = "0.10.1"
 rimd = "0.0.1"
 midly = "0.5.3"
+clap = { version = "4.0", features = ["derive"] }
 
 [build-dependencies]
 midly = "0.5.3"
