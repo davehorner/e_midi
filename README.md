@@ -56,6 +56,13 @@ The application starts with an interactive configuration menu:
 2. **Delay Settings**: Configure pause duration between songs
 3. **Playback Mode Selection**: Choose from 4 different playback modes
 
+### Song Selection
+The player maintains a unified song index where:
+- **Static songs** (compiled-in from `midi/`) appear first (indexes 0-N)
+- **Dynamic songs** (runtime-loaded) appear after static songs (indexes N+1 onwards)
+- Song selection by index works seamlessly across both types
+- Static songs provide guaranteed availability and optimal performance
+
 ### Track and BPM Selection
 When playing songs, you can:
 - **Track Selection**: Enter track numbers (e.g., "1,3,5") or press Enter for all tracks
@@ -85,6 +92,220 @@ Select option (1-4): 4
 Select scan type (1-3): 3
 ```
 
+## Command Line Interface
+
+### Overview
+e_midi provides both interactive and command-line modes. The CLI allows for scripting, automation, and integration with other tools.
+
+### Full Help Output
+```
+A feature-rich interactive MIDI player with advanced playback options
+
+Usage: e_midi.exe [OPTIONS] [COMMAND]
+
+Commands:
+  list           List all available songs
+  play           Play a specific song
+  play-all       Play all songs in sequence
+  play-random    Play songs in random order
+  scan           Scan mode - play portions of songs
+  list-dynamic   List only dynamically loaded songs
+  clear-dynamic  Clear all dynamically loaded songs
+  interactive    Run in interactive mode (default)
+  help           Print this message or the help of the given subcommand(s)
+
+Options:
+      --loop-playlist
+          Loop the entire playlist continuously
+      --loop-individual-songs
+          Loop individual songs
+      --delay-between-songs <DELAY_BETWEEN_SONGS>
+          Delay between songs in seconds [default: 0]
+      --scan-duration <SCAN_DURATION>
+          Scan segment duration in seconds [default: 30]
+      --scan-random-start
+          Start scan segments at random positions
+  -t, --tui
+          Use TUI mode with split panels (menu + playback info)
+      --add-song <ADD_SONGS>
+          Add MIDI files to the dynamic playlist
+      --scan-directory <SCAN_DIRECTORIES>
+          Scan directories and add all MIDI files to the dynamic playlist
+  -h, --help
+          Print help
+  -V, --version
+          Print version
+```
+
+### Command Examples
+
+#### Basic Playback
+```bash
+# List available songs
+e_midi list
+
+# Play song at index 5
+e_midi play 5
+
+# Play song 3 with custom tempo
+e_midi play 3 --tempo 140
+
+# Play specific tracks (1, 3, 5) from song 2
+e_midi play 2 --tracks 1,3,5
+
+# Play all songs in sequence
+e_midi play-all
+
+# Play songs in random order
+e_midi play-random
+```
+
+#### Looping and Timing
+```bash
+# Loop the entire playlist
+e_midi play-all --loop-playlist
+
+# Loop individual songs with 5-second delays
+e_midi play-all --loop-individual-songs --delay-between-songs 5
+
+# Play song 0 on loop
+e_midi play 0 --loop-individual-songs
+```
+
+#### Scan Mode
+```bash
+# Sequential scan with default 30-second segments
+e_midi scan
+
+# Random position scan with 45-second segments
+e_midi scan --mode 2 --duration 45
+
+# Progressive scan (increasing duration)
+e_midi scan --mode 3
+
+# Scan with random start positions
+e_midi scan --scan-random-start
+```
+
+#### Dynamic Playlist Management
+```bash
+# Add individual MIDI files
+e_midi --add-song song1.mid --add-song song2.mid list
+
+# Scan directory for MIDI files
+e_midi --scan-directory /path/to/midi/files list
+
+# List only dynamically loaded songs
+e_midi list-dynamic
+
+# Clear all dynamic songs
+e_midi clear-dynamic
+```
+
+#### TUI Mode
+```bash
+# Launch with Terminal User Interface
+e_midi --tui
+
+# TUI with pre-loaded dynamic songs
+e_midi --tui --scan-directory /path/to/midi/files
+```
+
+### Subcommand Details
+
+#### `play` Command
+```
+Play a specific song
+
+Usage: e_midi.exe play [OPTIONS] <SONG_INDEX>
+
+Arguments:
+  <SONG_INDEX>  Song index to play
+
+Options:
+      --tracks <TRACKS>  Track numbers to play (comma-separated)
+      --tempo <TEMPO>    Tempo in BPM
+  -h, --help             Print help
+```
+
+#### `scan` Command
+```
+Scan mode - play portions of songs
+
+Usage: e_midi.exe scan [OPTIONS]
+
+Options:
+      --mode <MODE>          Scan mode: 1=sequential, 2=random positions, 3=progressive [default: 1]
+      --duration <DURATION>  Duration of each scan segment in seconds
+  -h, --help                 Print help
+```
+
+### Integration Examples
+
+#### Batch Processing
+```bash
+# Play all songs with logging
+e_midi play-all --delay-between-songs 1 > playback.log 2>&1
+
+# Scan all songs for 10 seconds each
+e_midi scan --mode 1 --duration 10
+```
+
+#### Scripting
+```bash
+#!/bin/bash
+# Play random songs for background music
+while true; do
+    e_midi play-random --delay-between-songs 2
+    sleep 5
+done
+```
+
+## Song Management
+
+### Static vs Dynamic Songs
+The e_midi player uses a hybrid approach for managing MIDI content:
+
+#### Static Songs (Compiled-In)
+- **Build-time Processing**: MIDI files in the `midi/` directory are processed at compile time by `build.rs`
+- **Embedded Data**: Song data is compiled directly into the executable for fast access
+- **Index Priority**: Static songs appear first in the song index (positions 0-N)
+- **Performance**: Zero I/O overhead during playback - all data is in memory
+- **Use Case**: Core repertoire, frequently played songs, or embedded deployments
+
+#### Dynamic Songs (Runtime Loading)
+- **Runtime Discovery**: Additional MIDI files can be loaded at runtime from specified directories
+- **Flexible Content**: Add new songs without recompilation
+- **Index Continuation**: Dynamic songs appear after static songs in the index (positions N+1 onwards)
+- **File I/O**: Loaded on-demand with minimal caching
+- **Use Case**: Experimental content, large libraries, or user-provided files
+
+The player seamlessly handles both types, with static songs providing guaranteed availability and performance, while dynamic songs offer flexibility for expanding the music library.
+
+## Inter-Process Communication (IPC)
+
+### iceoryx2 Integration
+e_midi includes built-in IPC capabilities using the iceoryx2 framework for lock-free, zero-copy communication:
+
+#### Communication Features
+- **Real-time Events**: Playback status, song changes, progress updates
+- **Remote Control**: Play, stop, pause, next/previous, tempo control via IPC
+- **State Synchronization**: Song lists, playback state, window management
+- **Grid Integration**: Future support for e_grid pattern-based control
+
+#### Ecosystem Integration
+- **e_grid**: Pattern-based MIDI triggering and sequencing
+- **State Server**: Centralized state management across e_* applications
+- **Multi-instance**: Multiple e_midi instances can coordinate playback
+- **External Control**: Third-party applications can control playback via IPC
+
+#### Event Types
+- **MIDI Commands**: Play, stop, pause, resume, tempo changes
+- **Status Updates**: Playback started/stopped, song changes, progress
+- **System Events**: Heartbeats, shutdown coordination, state requests
+
+The IPC system enables e_midi to function as both a standalone player and a component in larger musical ecosystems.
+
 ## Configuration
 
 ### Build-time Configuration
@@ -103,6 +324,8 @@ The application processes MIDI files at build time using `build.rs`. Place your 
 - **Event Timeline**: Converts MIDI events to a timeline-based playback system
 - **Non-blocking Input**: Allows user interaction during playback
 - **Accurate Timing**: Precise millisecond-level timing for faithful MIDI reproduction
+- **IPC Layer**: iceoryx2-based inter-process communication for ecosystem integration
+- **Hybrid Storage**: Compile-time embedded songs + runtime dynamic loading
 
 ### MIDI Processing
 - Supports standard MIDI files (SMF)
@@ -115,6 +338,9 @@ The application processes MIDI files at build time using `build.rs`. Place your 
 - `midly`: MIDI file parsing
 - `rimd`: Additional MIDI utilities
 - `ansi_term`: Terminal color output
+- `iceoryx2`: Lock-free inter-process communication
+- `ratatui`: Terminal user interface framework
+- `crossterm`: Cross-platform terminal manipulation
 
 ## Troubleshooting
 
@@ -142,16 +368,32 @@ If you encounter build errors:
 ├── build.rs              # MIDI processing and code generation
 ├── src/
 │   ├── main.rs           # Main application logic
+│   ├── cli.rs            # Command-line interface
+│   ├── tui.rs            # Terminal user interface
+│   ├── lib.rs            # Library exports
+│   ├── ipc/              # Inter-process communication
+│   │   ├── mod.rs        # IPC module exports
+│   │   ├── events.rs     # Event definitions
+│   │   ├── publisher.rs  # Event publishing
+│   │   ├── subscriber.rs # Event subscription
+│   │   ├── service.rs    # Service management
+│   │   └── types.rs      # Type definitions
 │   └── midi_data.rs      # Generated MIDI data (build artifact)
+├── midi/                 # Static MIDI files (compiled in)
+│   ├── *.mid            # Classical and other MIDI files
+│   ├── attic/           # Archive of various MIDI files
+│   └── good/            # Curated high-quality files
 ├── Cargo.toml           # Dependencies and metadata
-└── *.mid               # MIDI files to process
+└── examples/            # Usage examples
 ```
 
 ### Adding Features
 The codebase is modular and easy to extend:
 - **New playback modes**: Add functions in `main.rs`
 - **Additional MIDI processing**: Modify `build.rs`
-- **Enhanced UI**: Extend the menu system
+- **Enhanced UI**: Extend the menu system or TUI components
+- **CLI extensions**: Add new subcommands or options in `cli.rs`
+- **IPC events**: Extend event types in `ipc/events.rs`
 - **Export capabilities**: Add file output options
 
 ### Contributing
@@ -180,6 +422,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Added configurable delays and timing options
 - Fixed timing calculation bugs for accurate playback
 - Improved track selection and BPM override functionality
+- **Complete CLI interface with all interactive features**
+- **Dynamic playlist management with --add-song and --scan-directory**
+- **Terminal User Interface (TUI) mode with --tui flag**
+- **Inter-process communication (IPC) via iceoryx2**
 
 ### v0.1.0
 - Initial release with basic MIDI playback
