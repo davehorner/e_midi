@@ -86,7 +86,7 @@ fn main() {
             let mut abs_time = 0u32;
 
             for ev in track.iter() {
-                abs_time = abs_time.wrapping_add(ev.delta.as_int() as u32);
+                abs_time = abs_time.wrapping_add(ev.delta.as_int());
                 if let TrackEventKind::Midi { channel, message } = ev.kind {
                     match message {
                         midly::MidiMessage::NoteOn { key, vel } if vel > 0 => {
@@ -123,7 +123,7 @@ fn main() {
         )
         .unwrap();
         let mut non_empty_track_count = 0;
-        for (_track_idx, track_notes) in all_track_notes.iter().enumerate() {
+        for track_notes in all_track_notes.iter() {
             if !track_notes.is_empty() {
                 writeln!(
                     out,
@@ -175,7 +175,7 @@ fn main() {
     // Generate song info function
     writeln!(out, "\npub fn get_songs() -> Vec<SongInfo> {{").unwrap();
     writeln!(out, "    vec![").unwrap();
-    for (_song_idx, path) in midi_file_paths.iter().enumerate() {
+    for path in midi_file_paths.iter() {
         let filename = path.file_name().unwrap().to_str().unwrap().to_string();
         let song_name = filename.replace(".mid", "").replace("_", " ");
         let midi_bytes = std::fs::read(path).unwrap();
@@ -239,6 +239,12 @@ fn main() {
                             }
                             _ => {}
                         }
+                    }
+                    TrackEventKind::Meta(midly::MetaMessage::ProgramName(_)) => {
+                        // Ignore program names for now
+                    }
+                    TrackEventKind::Meta(midly::MetaMessage::InstrumentName(_)) => {
+                        // Ignore instrument names for now
                     }
                     _ => {}
                 }
