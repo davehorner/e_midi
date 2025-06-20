@@ -1,13 +1,17 @@
 use std::error::Error;
 use std::io::{stdout, stdin, Write};
-use std::sync::{Arc, Mutex, atomic::{AtomicU32, AtomicBool, Ordering}};
-use std::thread::{self, sleep};
+use std::sync::{Arc, Mutex, atomic::{AtomicU32, AtomicBool, Ordering}, mpsc};
+use std::thread::{self, sleep, JoinHandle};
 use std::time::{Duration, Instant};
 use std::path::Path;
 use std::fs;
 
-use midir::{MidiOutput, MidiOutputConnection};
+use midir::MidiOutput;
 use midly::{Smf, TrackEventKind, MidiMessage};
+
+// Import the IPC module (now fixed)
+pub mod ipc;
+pub use ipc::{IpcServiceManager, Event as IpcEvent, AppId};
 
 // Global shutdown flag for graceful Ctrl+C handling
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
@@ -18,6 +22,16 @@ pub fn set_shutdown_flag() {
 
 pub fn should_shutdown() -> bool {
     SHUTDOWN.load(Ordering::Relaxed)
+}
+
+// MIDI command messages for the background thread
+#[derive(Debug, Clone)]
+pub enum MidiCommand {
+    NoteOn { channel: u8, pitch: u8, velocity: u8 },
+    NoteOff { channel: u8, pitch: u8 },
+    SendMessage(Vec<u8>),
+    AllNotesOff,
+    Shutdown,
 }
 
 // Include the generated MIDI data
@@ -66,8 +80,16 @@ pub struct MidiPlayer {
     static_songs: Vec<SongInfo>,
     dynamic_songs: Vec<SongInfo>,
     dynamic_midi_data: Vec<Vec<u8>>, // Store raw MIDI data for dynamic songs
-    pub conn: MidiOutputConnection,
     config: LoopConfig,
+    ipc_manager: Option<IpcServiceManager>, // Optional IPC for pub/sub communication
+    
+    // Channel-based MIDI architecture
+    midi_sender: mpsc::Sender<MidiCommand>,
+    _midi_thread: JoinHandle<()>, // Background MIDI thread handle
+    
+    // Playback control
+    playback_stop_flag: Arc<AtomicBool>,
+    is_playing: Arc<AtomicBool>, // Shared playback state
 }
 
 impl MidiPlayer {
@@ -96,16 +118,102 @@ impl MidiPlayer {
         let port_name = midi_out.port_name(port).unwrap_or_else(|_| "Unknown".to_string());
         let conn = midi_out.connect(port, "e_midi")?;
         println!("🔌 Connected to MIDI port: {}", port_name);
-          let static_songs = get_songs();
         
-        Ok(MidiPlayer {
+        // Create the channel for sending MIDI commands to the background thread
+        let (sender, receiver) = mpsc::channel::<MidiCommand>();
+        
+        // Spawn the background MIDI thread
+        let midi_thread = thread::spawn(move || {
+            Self::midi_thread_loop(conn, receiver);
+        });
+          let static_songs = get_songs();        Ok(MidiPlayer {
             static_songs,
             dynamic_songs: Vec::new(),
             dynamic_midi_data: Vec::new(),
-            conn,
             config: LoopConfig::default(),
+            ipc_manager: None, // Initialize as None, can be enabled later
+            midi_sender: sender,
+            _midi_thread: midi_thread,
+            playback_stop_flag: Arc::new(AtomicBool::new(false)),
+            is_playing: Arc::new(AtomicBool::new(false)),
         })
-    }    /// Get count of static songs
+    }
+
+    // Background MIDI thread that handles all MIDI output
+    fn midi_thread_loop(mut conn: midir::MidiOutputConnection, receiver: mpsc::Receiver<MidiCommand>) {
+        println!("🎹 MIDI background thread started");
+          while let Ok(command) = receiver.recv() {
+            match command {
+                MidiCommand::NoteOn { channel, pitch, velocity } => {
+                    let msg = [0x90 | (channel & 0x0F), pitch, velocity];
+                    if let Err(e) = conn.send(&msg) {
+                        eprintln!("❌ MIDI send error (note on): {}", e);
+                    }
+                }
+                MidiCommand::NoteOff { channel, pitch } => {
+                    let msg = [0x80 | (channel & 0x0F), pitch, 0];
+                    if let Err(e) = conn.send(&msg) {
+                        eprintln!("❌ MIDI send error (note off): {}", e);
+                    }
+                }
+                MidiCommand::SendMessage(msg) => {
+                    if let Err(e) = conn.send(&msg) {
+                        eprintln!("❌ MIDI send error: {}", e);
+                    }
+                }
+                MidiCommand::AllNotesOff => {
+                    // Send all notes off for all channels
+                    for channel in 0..16 {
+                        let msg = [0xB0 | channel, 123, 0];
+                        if let Err(e) = conn.send(&msg) {
+                            eprintln!("❌ MIDI send error (all notes off): {}", e);
+                        }
+                    }
+                }
+                MidiCommand::Shutdown => {
+                    println!("🎹 MIDI background thread shutting down");
+                    // Send all notes off before shutdown
+                    for channel in 0..16 {
+                        let msg = [0xB0 | channel, 123, 0];
+                        let _ = conn.send(&msg); // Ignore errors during shutdown
+                    }
+                    break;
+                }
+            }
+        }
+        
+        println!("🎹 MIDI background thread finished");
+    }    // Send a MIDI command to the background thread
+    fn send_midi_command(&self, command: MidiCommand) -> Result<(), Box<dyn Error>> {
+        self.midi_sender.send(command).map_err(|e| format!("Failed to send MIDI command: {}", e).into())
+    }
+      /// Stop any currently playing background playback
+    pub fn stop_playback(&mut self) {
+        self.playback_stop_flag.store(true, Ordering::Relaxed);
+        self.is_playing.store(false, Ordering::Relaxed);
+        
+        // Send all notes off command through the MIDI channel
+        if let Err(_) = self.send_midi_command(MidiCommand::AllNotesOff) {
+            eprintln!("Failed to send all notes off command");
+        }
+    }
+    
+    /// Reset the stop flag (called before starting new playback)
+    fn reset_stop_flag(&mut self) {
+        self.playback_stop_flag.store(false, Ordering::Relaxed);
+    }
+    
+    /// Check if currently playing
+    pub fn is_playing(&self) -> bool {
+        self.is_playing.load(Ordering::Relaxed)
+    }
+    
+    /// Get a clone of the playing state atomic bool for sharing with TUI
+    pub fn get_playing_state(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.is_playing)
+    }
+    
+    /// Get count of static songs
     pub fn get_static_song_count(&self) -> usize {
         self.static_songs.len()
     }
@@ -312,8 +420,7 @@ impl MidiPlayer {
                     },
                     _ => 0,
                 };                println!("\n▶️  Scanning: {} ({}/{})", song.name, song_index + 1, songs_count);
-                
-                let events = self.get_events_for_song(song_index, &song.tracks.iter().map(|t| t.index).collect::<Vec<_>>(), song.default_tempo);
+                  let events = self.get_events_for_song(song_index, &song.tracks.iter().map(|t| t.index).collect::<Vec<_>>(), song.default_tempo);
                 if !events.is_empty() {
                     // Calculate full song duration first
                     let full_duration_ms = calculate_song_duration_ms(&events);
@@ -952,15 +1059,24 @@ impl MidiPlayer {
         }
         
         // Sort events by start time
-        events.sort_by_key(|note| note.start_ms);
-        events
+        events.sort_by_key(|note| note.start_ms);        events
     }
-
+    
     fn play_events_with_tempo_control(
         &mut self,
         events: &[Note],
         initial_tempo_bpm: u32,
     ) -> Result<bool, Box<dyn Error>> {
+        // Publish playback started event
+        self.publish_midi_event(crate::ipc::Event::MidiPlaybackStarted {
+            song_index: 0,
+            song_name: "Unknown Song".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
+        
         #[derive(Copy, Clone)]
         enum Kind {
             On,
@@ -1003,8 +1119,7 @@ impl MidiPlayer {
         let tempo_clone = Arc::clone(&tempo_multiplier);
         let quit_clone = Arc::clone(&should_quit);
         let next_clone = Arc::clone(&should_next);
-        let finished_clone = Arc::clone(&playback_finished);
-        
+        let finished_clone = Arc::clone(&playback_finished);        
         let input_thread = thread::spawn(move || {
             let stdin = stdin();
             loop {
@@ -1039,7 +1154,8 @@ impl MidiPlayer {
                         if let Ok(mut next) = next_clone.lock() {
                             *next = true;
                         }
-                        break;                    } else if input.starts_with("t") {
+                        break;
+                    } else if input.starts_with("t") {
                         // Handle both "t" alone and "t<number>" (e.g. "t120")
                         let tempo_str = if input == "t" {
                             // Prompt for tempo input
@@ -1054,14 +1170,14 @@ impl MidiPlayer {
                             // Extract tempo from "t<number>" format
                             input[1..].to_string()
                         };
-                        
-                        if let Ok(new_tempo) = tempo_str.parse::<u32>() {
+                          if let Ok(new_tempo) = tempo_str.parse::<u32>() {
                             if new_tempo > 0 && new_tempo <= 500 {  // Reasonable tempo range
                                 tempo_clone.store((new_tempo as f32 * 1000.0) as u32, Ordering::Relaxed);
                                 println!("⏱️  Tempo changed to {} BPM", new_tempo);
                             } else {
                                 println!("⚠️  Invalid tempo: {} (must be 1-500 BPM)", new_tempo);
-                            }                        } else {
+                            }
+                        } else {
                             println!("⚠️  Invalid tempo format. Use 't' then enter BPM, or 't<BPM>' (e.g. 't120')");
                         }
                     } else if let Ok(new_tempo) = input.parse::<u32>() {
@@ -1077,7 +1193,9 @@ impl MidiPlayer {
                     break;
                 }
             }
-        });        let start = Instant::now();
+        });
+
+        let start = Instant::now();
         let mut idx = 0;
         let mut last_tempo = initial_tempo_bpm as f32 * 1000.0;
         let mut time_offset = 0.0;
@@ -1091,7 +1209,7 @@ impl MidiPlayer {
             0
         };
 
-        println!("🎵 Starting playback with {} events...", timeline.len());while idx < timeline.len() {
+        println!("🎵 Starting playback with {} events...", timeline.len());        while idx < timeline.len() {
             // Check if we should quit or go to next song
             if should_shutdown() {
                 println!("🛑 Shutdown requested, stopping playback");
@@ -1108,7 +1226,7 @@ impl MidiPlayer {
                     println!("⏭️  Skipping to next song...");
                     // Send all notes off before moving to next
                     for channel in 0..16 {
-                        self.conn.send(&[0xB0 | channel, 123, 0])?;
+                        self.send_midi_command(MidiCommand::AllNotesOff)?;
                     }
                     return Ok(true);
                 }
@@ -1139,15 +1257,19 @@ impl MidiPlayer {
                 print!("\r🎵 Playing: {}s/{}s ({}%) @ {:.0} BPM", progress_seconds, total_seconds, progress_percentage, current_tempo);
                 stdout().flush().unwrap_or(());
                 last_print_time = adjusted_time;
-            }            while idx < timeline.len() && timeline[idx].t <= adjusted_time {
+            }
+
+            while idx < timeline.len() && timeline[idx].t <= adjusted_time {
                 let e = &timeline[idx];
                 let msg = match e.kind {
                     Kind::On => [0x90 | (e.chan & 0x0F), e.p, e.v],
                     Kind::Off => [0x80 | (e.chan & 0x0F), e.p, 0],
                 };
-                self.conn.send(&msg)?;
+                self.send_midi_command(MidiCommand::SendMessage(msg.to_vec()))?;
                 idx += 1;
-            }            sleep(Duration::from_millis(1));
+            }
+
+            sleep(Duration::from_millis(1));
         }
 
         // Print final newline to end the progress line
@@ -1157,7 +1279,7 @@ impl MidiPlayer {
 
         // Send all notes off
         for channel in 0..16 {
-            self.conn.send(&[0xB0 | channel, 123, 0])?;
+            self.send_midi_command(MidiCommand::SendMessage(vec![0xB0 | channel, 123, 0]))?;
         }
 
         // Signal input thread that playback has finished
@@ -1166,10 +1288,17 @@ impl MidiPlayer {
         }
 
         println!("✅ Playback complete!");
-        
-        // Don't wait for input thread - it may be blocked on stdin reading
+          // Don't wait for input thread - it may be blocked on stdin reading
         // Just drop the handle and let it be cleaned up
         drop(input_thread);
+
+        // Publish playback stopped event
+        self.publish_midi_event(crate::ipc::Event::MidiPlaybackStopped {
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
 
         // Return true if user didn't quit (wants to continue looping), false if they quit
         let user_quit = should_quit.lock().map(|guard| *guard).unwrap_or(false);
@@ -1317,33 +1446,30 @@ impl MidiPlayer {
             last_real_time = real_elapsed_f;
 
             // Print time progress every 100ms
-            if real_elapsed / 100 != last_print_time / 100 {                let progress_seconds = real_elapsed / 1000;
+            if real_elapsed / 100 != last_print_time / 100 {
+                let progress_seconds = real_elapsed / 1000;
                 let total_seconds = max_duration_ms / 1000;
                 let progress_percentage = (real_elapsed as f32 / max_duration_ms as f32 * 100.0) as u32;
                 print!("\r🎵 Playing: {}s/{}s ({}%) @ {} BPM", progress_seconds, total_seconds, progress_percentage, current_tempo);
                 stdout().flush().unwrap_or(());
                 last_print_time = real_elapsed;
-            }
-
-            while idx < timeline.len() && timeline[idx].t <= adjusted_time {
+            }            while idx < timeline.len() && timeline[idx].t <= adjusted_time {
                 let e = &timeline[idx];
                 let msg = match e.kind {
                     Kind::On => [0x90 | (e.chan & 0x0F), e.p, e.v],
                     Kind::Off => [0x80 | (e.chan & 0x0F), e.p, 0],
                 };
-                self.conn.send(&msg)?;
-                idx += 1;            }
-            sleep(Duration::from_millis(1));
+                self.send_midi_command(MidiCommand::SendMessage(msg.to_vec()))?;
+                idx += 1;
+            }sleep(Duration::from_millis(1));
         }
         
         // Print final newline to end the progress line
         println!();
         
-        println!("🎼 Playbook loop finished, sending all notes off");
-        
         // Send all notes off
         for channel in 0..16 {
-            self.conn.send(&[0xB0 | channel, 123, 0])?;
+            self.send_midi_command(MidiCommand::SendMessage(vec![0xB0 | channel, 123, 0]))?;
         }
         
         println!("🧵 Waiting for input thread to finish");
@@ -1356,8 +1482,217 @@ impl MidiPlayer {
         println!("🏁 Playback function completed");
         
         // Return false if user quit, true if song finished naturally or next was pressed
-        let quit_flag = *should_quit.lock().unwrap();
-        Ok(!quit_flag)    }
+        let quit_flag = *should_quit.lock().unwrap();        Ok(!quit_flag)
+    }    /// Initialize IPC publisher for event-driven communication
+    pub fn init_ipc_publisher(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.ipc_manager.is_none() {
+            match IpcServiceManager::new(AppId::EMidi) {
+                Ok(manager) => {
+                    self.ipc_manager = Some(manager);
+                    // IPC initialized silently - no output to avoid TUI corruption
+                    Ok(())
+                }
+                Err(_) => {
+                    // Silently fail - IPC is optional for the MIDI player
+                    Ok(())
+                }
+            }
+        } else {
+            Ok(()) // Already initialized
+        }
+    }    
+    
+    /// Publish a MIDI event via IPC if publisher is available
+    fn publish_midi_event(&self, event: crate::ipc::Event) {
+        if let Some(ref ipc_manager) = self.ipc_manager {
+            let _ = ipc_manager.publish_event(event); // Silently ignore errors
+        }
+    }    
+    /// Play a song with IPC event publishing for TUI integration
+    pub fn play_song_with_ipc(&mut self, song_index: usize) -> Result<(), Box<dyn Error>> {
+        if song_index >= self.get_total_song_count() {
+            return Err("Invalid song index".into());
+        }
+
+        let selected_song = self.get_song(song_index).ok_or("Invalid song index")?;
+        let track_indices: Vec<usize> = selected_song.tracks.iter().map(|t| t.index).collect();
+        let tempo = selected_song.default_tempo;
+        
+        // Publish playback started event
+        self.publish_midi_event(crate::ipc::Event::MidiPlaybackStarted { 
+            song_index, 
+            song_name: selected_song.name.clone(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
+
+        let events = self.get_events_for_song(song_index, &track_indices, tempo);
+        if events.is_empty() {
+            // Publish stopped event immediately if no events
+            self.publish_midi_event(crate::ipc::Event::MidiPlaybackStopped { 
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64
+            });
+            return Err("No events to play! Check track selection.".into());
+        }        // Use the non-blocking playback method to avoid blocking the TUI
+        self.play_song_with_ipc_nonblocking(song_index)?;
+
+        Ok(())
+    }
+
+    /// Non-blocking version of play_song_with_ipc that spawns playback in a background thread
+    pub fn play_song_with_ipc_nonblocking(&mut self, song_index: usize) -> Result<(), Box<dyn Error>> {
+        if song_index >= self.get_total_song_count() {
+            return Err("Invalid song index".into());
+        }
+
+        let selected_song = self.get_song(song_index).ok_or("Invalid song index")?;
+        let track_indices: Vec<usize> = selected_song.tracks.iter().map(|t| t.index).collect();
+        let tempo = selected_song.default_tempo;
+        
+        // Publish playback started event
+        self.publish_midi_event(crate::ipc::Event::MidiPlaybackStarted { 
+            song_index, 
+            song_name: selected_song.name.clone(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
+
+        let events = self.get_events_for_song(song_index, &track_indices, tempo);
+        if events.is_empty() {
+            // Publish stopped event immediately if no events
+            self.publish_midi_event(crate::ipc::Event::MidiPlaybackStopped { 
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64
+            });
+            return Err("No events to play! Check track selection.".into());
+        }        // Reset the stop flag before starting new playback
+        self.reset_stop_flag();
+        self.is_playing.store(true, Ordering::Relaxed);
+        
+        // Clone the MIDI sender and stop flag for the background thread
+        let midi_sender = self.midi_sender.clone();
+        let stop_flag = Arc::clone(&self.playback_stop_flag);
+        let playing_state = Arc::clone(&self.is_playing);
+        let events_clone = events.clone();
+        
+        // Spawn playback in a background thread
+        thread::spawn(move || {
+            if let Err(e) = Self::play_events_in_background(events_clone, tempo, midi_sender, stop_flag, playing_state) {
+                eprintln!("Background playback error: {}", e);
+            }
+        });
+
+        Ok(())
+    }    /// Static method to play events in a background thread (doesn't need &mut self)
+    fn play_events_in_background(
+        events: Vec<Note>,
+        tempo_bpm: u32,
+        midi_sender: std::sync::mpsc::Sender<MidiCommand>,
+        stop_flag: Arc<AtomicBool>,
+        playing_state: Arc<AtomicBool>,
+    ) -> Result<(), Box<dyn Error>> {
+        use std::time::Instant;
+        use std::thread;
+
+        #[derive(Copy, Clone)]
+        enum Kind {
+            On,
+            Off,
+        }
+
+        struct Scheduled {
+            t: u32,
+            kind: Kind,
+            chan: u8,
+            p: u8,
+            v: u8,
+        }
+
+        let mut timeline = Vec::with_capacity(events.len() * 2);
+        for n in &events {
+            timeline.push(Scheduled {
+                t: n.start_ms,
+                kind: Kind::On,
+                chan: n.chan,
+                p: n.pitch,
+                v: n.vel,
+            });
+            timeline.push(Scheduled {
+                t: n.start_ms + n.dur_ms,
+                kind: Kind::Off,
+                chan: n.chan,
+                p: n.pitch,
+                v: 0,
+            });
+        }
+        timeline.sort_by_key(|e| e.t);
+
+        let start = Instant::now();
+        let mut idx = 0;
+        let tempo_ms_per_beat = 60000.0 / tempo_bpm as f32;        while idx < timeline.len() {
+            // Check for global shutdown or local stop flag
+            if should_shutdown() || stop_flag.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let event = &timeline[idx];
+            let target_time_ms = (event.t as f32 * tempo_ms_per_beat / 500.0) as u64;
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            
+            if elapsed_ms < target_time_ms {
+                thread::sleep(Duration::from_millis(
+                    std::cmp::min(target_time_ms - elapsed_ms, 50)
+                ));
+                continue;
+            }
+
+            // Send MIDI event through the channel
+            let msg = match event.kind {
+                Kind::On => vec![0x90 | event.chan, event.p, event.v],
+                Kind::Off => vec![0x80 | event.chan, event.p, 0],
+            };
+            
+            if let Err(_) = midi_sender.send(MidiCommand::SendMessage(msg)) {
+                // MIDI thread is probably shutdown, exit gracefully
+                break;
+            }            idx += 1;
+        }        // Mark playback as finished
+        playing_state.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+/// Calculate the total duration of a song in milliseconds
+pub fn calculate_song_duration_ms(events: &[Note]) -> u32 {
+    events.iter()
+        .map(|note| note.start_ms + note.dur_ms)
+        .max()
+        .unwrap_or(0)
+}
+
+/// Format duration in milliseconds to a readable string
+pub fn format_duration(duration_ms: u32) -> String {
+    let seconds = duration_ms / 1000;
+    let minutes = seconds / 60;
+    let remaining_seconds = seconds % 60;
+    
+    if minutes > 0 {
+        format!("{}m{:02}s", minutes, remaining_seconds)
+    } else {
+        format!("{}s", remaining_seconds)
+    }
+}
+
+impl MidiPlayer {
 
     /// Simple playback method for non-interactive scan mode - no input handling, just plays for the specified duration
     fn play_events_simple(
@@ -1431,46 +1766,28 @@ impl MidiPlayer {
                 print!("\r🎵 Playing: {}s/{}s ({}%) @ {} BPM", progress_seconds, total_seconds, progress_percentage, tempo_bpm);
                 stdout().flush().unwrap_or(());
                 last_print_time = real_elapsed;
-            }
-
-            // Play all events scheduled for this time
+            }            // Play all events scheduled for this time
             while idx < timeline.len() && timeline[idx].t <= real_elapsed {
                 let e = &timeline[idx];
                 let msg = match e.kind {
                     Kind::On => [0x90 | (e.chan & 0x0F), e.p, e.v],
                     Kind::Off => [0x80 | (e.chan & 0x0F), e.p, 0],
                 };
-                self.conn.send(&msg)?;
+                self.send_midi_command(MidiCommand::SendMessage(msg.to_vec()))?;
                 idx += 1;
             }
             
             sleep(Duration::from_millis(1));
         }
-        
-        // Print final newline to end the progress line
+          // Print final newline to end the progress line
         println!();
         
         // Send all notes off
         for channel in 0..16 {
-            self.conn.send(&[0xB0 | channel, 123, 0])?;
+            self.send_midi_command(MidiCommand::SendMessage(vec![0xB0 | channel, 123, 0]))?;
         }
         
         Ok(())
-    }
-
-    /// Helper function for robust input reading with better error handling
-    fn read_input_line(prompt: &str) -> Result<String, Box<dyn Error>> {
-        print!("{}", prompt);
-        stdout().flush()?;
-        let mut input = String::new();
-        let bytes_read = stdin().read_line(&mut input)?;
-        
-        // If no bytes were read, stdin is closed (EOF)
-        if bytes_read == 0 {
-            return Err("EOF reached".into());
-        }
-        
-        Ok(input.trim().to_string())
     }
 
     /// Interactive method to load MIDI files or directories
@@ -1488,7 +1805,8 @@ impl MidiPlayer {
             println!("❌ No path provided");
             return Ok(());
         }
-          let paths: Vec<&str> = input.split_whitespace().collect();
+        
+        let paths: Vec<&str> = input.split_whitespace().collect();
         let mut total_added = 0;
         
         for path_str in paths {
@@ -1497,7 +1815,7 @@ impl MidiPlayer {
                                  (path_str.starts_with('\'') && path_str.ends_with('\'')) {
                 &path_str[1..path_str.len()-1]
             } else {
-                &path_str
+                path_str
             };
             
             let path = std::path::Path::new(cleaned_path);
@@ -1506,14 +1824,15 @@ impl MidiPlayer {
                 println!("❌ Path does not exist: {}", cleaned_path);
                 continue;
             }
-              if path.is_file() {
+            
+            if path.is_file() {
                 if path.extension().and_then(|s| s.to_str()) == Some("mid") {
                     match self.add_song_from_file(path) {
-                        Ok(_) => total_added += 1,
+                        Ok(()) => total_added += 1,
                         Err(e) => println!("❌ Failed to load {}: {}", cleaned_path, e),
                     }
                 } else {
-                    println!("❌ File is not a MIDI file (.mid): {}", cleaned_path);
+                    println!("❌ Not a MIDI file: {}", cleaned_path);
                 }
             } else if path.is_dir() {
                 match self.scan_directory(path) {
@@ -1522,38 +1841,87 @@ impl MidiPlayer {
                 }
             }
         }
-        
-        if total_added > 0 {
+          if total_added > 0 {
             println!("✅ Successfully loaded {} songs total", total_added);
         } else {
             println!("❌ No songs were loaded");
         }
         
         Ok(())
-    }
-
-    // ...existing code...
-}
-
-pub fn calculate_song_duration_ms(events: &[Note]) -> u32 {
-    if events.is_empty() {
-        return 0;
+    }    /// Run TUI mode with IPC relay
+    pub fn run_tui_mode_with_ipc(&mut self) -> Result<(), Box<dyn Error>> {
+        // Initialize IPC publisher for status events
+        self.init_ipc_publisher()?;
+        
+        // Run TUI mode normally - it will handle its own IPC communication
+        crate::tui::run_tui_mode(self)
     }
     
-    events.iter()
-        .map(|note| note.start_ms + note.dur_ms)
-        .max()
-        .unwrap_or(0)
-}
-
-fn format_duration(ms: u32) -> String {
-    let seconds = ms / 1000;
-    let minutes = seconds / 60;
-    let remaining_seconds = seconds % 60;
+    /// Process IPC commands from TUI and execute them
+    fn run_ipc_command_loop(&mut self, mut subscriber: crate::ipc::EventSubscriber) -> Result<(), Box<dyn Error>> {
+        println!("🔗 IPC command loop started, listening for TUI commands...");
+        
+        loop {
+            if should_shutdown() {
+                break;
+            }
+            
+            // Check for commands from TUI
+            match subscriber.try_receive() {
+                Ok(events) => {
+                    for event in events {
+                        self.handle_ipc_command(event)?;
+                    }
+                }
+                Err(_) => {
+                    // No events available - continue
+                }
+            }
+            
+            // Small delay to prevent busy waiting
+            thread::sleep(Duration::from_millis(10));
+        }
+        
+        println!("🔗 IPC command loop finished");
+        Ok(())
+    }
     
-    if minutes > 0 {
-        format!("{}m{:02}s", minutes, remaining_seconds)
-    } else {
-        format!("{}s", remaining_seconds)
+    /// Handle individual IPC commands
+    fn handle_ipc_command(&mut self, event: crate::ipc::Event) -> Result<(), Box<dyn Error>> {
+        match event {
+            crate::ipc::Event::MidiCommandPlay { song_index, .. } => {
+                println!("🎵 Received play command for song {}", song_index);
+                if song_index < self.get_total_song_count() {
+                    // Use the IPC-enabled playback method
+                    self.play_song_with_ipc(song_index)?;
+                } else {
+                    println!("❌ Invalid song index: {}", song_index);
+                }
+            }            crate::ipc::Event::MidiCommandStop { .. } => {
+                println!("⏹️ Received stop command");
+                // Send all notes off
+                for channel in 0..16 {
+                    self.send_midi_command(MidiCommand::SendMessage(vec![0xB0 | channel, 123, 0]))?;
+                }
+                self.publish_midi_event(crate::ipc::Event::MidiPlaybackStopped {
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64
+                });
+            }
+            crate::ipc::Event::MidiCommandNext { .. } => {
+                println!("⏭️ Received next command");
+                // TODO: Implement next song logic
+            }            crate::ipc::Event::MidiCommandPrevious { .. } => {
+                println!("⏮️ Received previous command");
+                // TODO: Implement previous song logic
+            }
+            _ => {
+                // Ignore other events
+            }
+        }
+        
+        Ok(())
     }
 }

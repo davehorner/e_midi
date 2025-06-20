@@ -1,6 +1,6 @@
-use std::error::Error;
 use e_midi::cli::run_cli;
 use e_midi::set_shutdown_flag;
+use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Set up Ctrl+C handler
@@ -9,6 +9,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         set_shutdown_flag();
         std::process::exit(0);
     })?;
-    
+
     run_cli()
 }

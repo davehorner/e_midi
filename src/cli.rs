@@ -159,8 +159,7 @@ pub fn run_cli() -> Result<(), Box<dyn Error>> {
         
         Some(Commands::ClearDynamic) => {
             player.clear_dynamic_songs();
-        },
-          Some(Commands::Interactive) | None => {
+        },        Some(Commands::Interactive) | None => {
             // Choose between TUI and CLI mode
             if cli.tui {
                 player.run_tui_mode()?;

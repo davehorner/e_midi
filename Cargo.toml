@@ -23,6 +23,8 @@ ratatui = "0.28"
 clap = { version = "4.0", features = ["derive"] }
 ctrlc = "3.4"
 iceoryx2 = "0.6.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [build-dependencies]
 midly = "0.5.3"
