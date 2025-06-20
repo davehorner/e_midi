@@ -37,7 +37,7 @@ A feature-rich, interactive MIDI player written in Rust with advanced playback o
 
 ### Building from Source
 ```bash
-git clone https://github.com/davidhorner/e_midi.git
+git clone https://github.com/davehorner/e_midi.git
 cd e_midi
 cargo build --release
 ```
@@ -97,9 +97,11 @@ Select scan type (1-3): 3
 ### Overview
 e_midi provides both interactive and command-line modes. The CLI allows for scripting, automation, and integration with other tools.
 
+**Important**: Global options must come before the subcommand (e.g., `e_midi --delay-between-songs 5 play-random`), while subcommand-specific options come after the subcommand (e.g., `e_midi scan --mode 2 --duration 45`).
+
 ### Full Help Output
 ```
-A feature-rich interactive MIDI player with advanced playback options
+An interactive/CLI/library MIDI player with advanced playback options, looping, and scan modes.
 
 Usage: e_midi.exe [OPTIONS] [COMMAND]
 
@@ -163,13 +165,13 @@ e_midi play-random
 #### Looping and Timing
 ```bash
 # Loop the entire playlist
-e_midi play-all --loop-playlist
+e_midi --loop-playlist play-all
 
 # Loop individual songs with 5-second delays
-e_midi play-all --loop-individual-songs --delay-between-songs 5
+e_midi --loop-individual-songs --delay-between-songs 5 play-all
 
 # Play song 0 on loop
-e_midi play 0 --loop-individual-songs
+e_midi --loop-individual-songs play 0
 ```
 
 #### Scan Mode
@@ -184,7 +186,7 @@ e_midi scan --mode 2 --duration 45
 e_midi scan --mode 3
 
 # Scan with random start positions
-e_midi scan --scan-random-start
+e_midi --scan-random-start scan
 ```
 
 #### Dynamic Playlist Management
@@ -244,19 +246,19 @@ Options:
 
 #### Batch Processing
 ```bash
-# Play all songs with logging
-e_midi play-all --delay-between-songs 1 > playback.log 2>&1
+# Play all songs with logging and 1-second delays
+e_midi --delay-between-songs 1 play-all > playback.log 2>&1
 
 # Scan all songs for 10 seconds each
-e_midi scan --mode 1 --duration 10
+e_midi --scan-duration 10 scan --mode 1
 ```
 
 #### Scripting
 ```bash
 #!/bin/bash
-# Play random songs for background music
+# Play random songs for background music with 2-second delays
 while true; do
-    e_midi play-random --delay-between-songs 2
+    e_midi --delay-between-songs 2 play-random
     sleep 5
 done
 ```
@@ -415,19 +417,19 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Changelog
 
-### v0.2.0 (Current)
-- Added comprehensive scan modes with progress reporting
-- Implemented playlist and individual song looping
-- Enhanced user interface with settings configuration
-- Added configurable delays and timing options
-- Fixed timing calculation bugs for accurate playback
-- Improved track selection and BPM override functionality
-- **Complete CLI interface with all interactive features**
-- **Dynamic playlist management with --add-song and --scan-directory**
-- **Terminal User Interface (TUI) mode with --tui flag**
-- **Inter-process communication (IPC) via iceoryx2**
-
-### v0.1.0
-- Initial release with basic MIDI playback
-- Single song and random playback modes
-- Basic track selection capabilities
+### v0.1.0 (Current)
+- Initial release with comprehensive MIDI playback capabilities
+- **Complete CLI interface** with all interactive features
+- **Interactive Menu Mode** with configuration options
+- **Terminal User Interface (TUI)** mode with --tui flag
+- **Multiple Playback Modes**: Single song, all songs, random, and scan modes
+- **Advanced Scan Modes**: Sequential, random start, and progressive scanning
+- **Looping Support**: Playlist and individual song looping with user control
+- **Track Selection**: Choose specific MIDI tracks to play
+- **BPM Override**: Custom tempo control with real-time adjustment
+- **Dynamic Playlist Management**: --add-song and --scan-directory options
+- **Static vs Dynamic Songs**: Compile-time embedded + runtime loading
+- **Configurable Delays**: Custom timing between songs (including zero delay)
+- **Progress Reporting**: Real-time progress with timestamps and percentages
+- **Inter-process Communication (IPC)**: iceoryx2-based ecosystem integration
+- **Cross-platform MIDI Support**: Windows, macOS, and Linux compatibility

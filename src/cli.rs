@@ -4,10 +4,10 @@ use std::error::Error;
 use crate::MidiPlayer;
 
 #[derive(Parser)]
-#[command(name = "e_midi")]
-#[command(about = "A feature-rich interactive MIDI player with advanced playback options")]
-#[command(version = "0.2.0")]
-#[command(author = "David Horner <david.horner@example.com>")]
+#[command(name = env!("CARGO_PKG_NAME"))]
+#[command(about = env!("CARGO_PKG_DESCRIPTION"))]
+#[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(author = env!("CARGO_PKG_AUTHORS"))]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
