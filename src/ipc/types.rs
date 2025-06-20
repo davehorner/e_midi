@@ -1,5 +1,5 @@
 //! Type definitions for IPC communication
-//! 
+//!
 //! All types used in inter-process communication must be serializable
 //! and designed for lock-free, zero-copy transmission.
 
@@ -143,15 +143,15 @@ pub enum IpcError {
 pub fn serialize_to_payload<T: serde::Serialize>(data: &T) -> IpcResult<IpcPayload> {
     let json_bytes = serde_json::to_vec(data)
         .map_err(|e| IpcError::SerializationError(format!("Serialization failed: {:?}", e)))?;
-    
+
     if json_bytes.len() > MAX_PAYLOAD_SIZE {
         return Err(IpcError::PayloadTooLarge(format!(
-            "Payload size {} exceeds maximum {}", 
-            json_bytes.len(), 
+            "Payload size {} exceeds maximum {}",
+            json_bytes.len(),
             MAX_PAYLOAD_SIZE
         )));
     }
-    
+
     let mut payload = [0u8; MAX_PAYLOAD_SIZE];
     payload[..json_bytes.len()].copy_from_slice(&json_bytes);
     Ok(payload)
@@ -164,12 +164,11 @@ pub fn deserialize_from_payload<T: serde::de::DeserializeOwned>(
 ) -> IpcResult<T> {
     if size > MAX_PAYLOAD_SIZE {
         return Err(IpcError::DeserializationError(format!(
-            "Payload size {} exceeds maximum {}", 
-            size, 
-            MAX_PAYLOAD_SIZE
+            "Payload size {} exceeds maximum {}",
+            size, MAX_PAYLOAD_SIZE
         )));
     }
-    
+
     let json_bytes = &payload[..size];
     serde_json::from_slice(json_bytes)
         .map_err(|e| IpcError::DeserializationError(format!("Deserialization failed: {:?}", e)))

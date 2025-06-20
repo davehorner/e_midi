@@ -1,18 +1,18 @@
 //! Inter-process communication module using iceoryx2
-//! 
+//!
 //! This module provides lock-free, zero-copy communication between the MIDI player
 //! and other applications in the e_* ecosystem (e_grid, state server, etc.)
 
 pub mod events;
 pub mod publisher;
-pub mod subscriber;
 pub mod service;
+pub mod subscriber;
 pub mod types;
 
 pub use events::*;
 pub use publisher::*;
-pub use subscriber::*;
 pub use service::*;
+pub use subscriber::*;
 pub use types::*;
 
 use std::error::Error;
