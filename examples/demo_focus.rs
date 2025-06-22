@@ -1,14 +1,18 @@
+#[cfg(target_os = "windows")]
 use e_grid::GridClient;
+#[cfg(target_os = "windows")]
 use e_grid::ipc_protocol::{WindowFocusEvent, WindowEvent};
 use e_midi::MidiPlayer;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+#[cfg(target_os = "windows")]
 use e_grid::ipc_server::start_server;
 
+#[cfg(target_os = "windows")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-//    let mut client = GridClient::new().unwrap();
+    //    let mut client = GridClient::new().unwrap();
 
     let mut client: Option<GridClient> = None;
     match GridClient::new() {
@@ -128,4 +132,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         thread::sleep(Duration::from_secs(1));
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn main() {
+    println!("demo_focus is only supported on Windows.");
 }
