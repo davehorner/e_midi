@@ -1,6 +1,6 @@
 [package]
 name = "e_midi"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["David Horner"]
 description = "An interactive/CLI/library MIDI player with advanced playback options, looping, and scan modes."
@@ -26,8 +26,13 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [target.'cfg(windows)'.dependencies]
-e_grid = "0.1.0"
+e_grid = "0.1.1"
+winapi = "0.3.9"
 
 [build-dependencies]
 midly = "0.5.3"
 rimd = "0.0.1"
+
+[[bin]]
+name = "e_midi_demo01"
+path = "examples/demo_focus_resize_move.rs"

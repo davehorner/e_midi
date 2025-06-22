@@ -16,7 +16,6 @@ use midly::{MidiMessage, Smf, TrackEventKind};
 pub mod ipc;
 pub use ipc::{AppId, Event as IpcEvent, IpcServiceManager};
 
-
 // Global shutdown flag for graceful Ctrl+C handling
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
@@ -113,14 +112,14 @@ impl MidiPlayer {
         if ports.is_empty() {
             println!("❌ No MIDI output ports found!");
             println!("💡 To hear sound, you need:");
-            
+
             #[cfg(target_os = "windows")]
             {
                 println!("   - Windows built-in MIDI synthesizer (usually available)");
                 println!("   - A software synthesizer (like VirtualMIDISynth)");
                 println!("   - Or a hardware MIDI device");
             }
-            
+
             #[cfg(target_os = "macos")]
             {
                 println!("   - Enable IAC Driver in Audio MIDI Setup:");
@@ -132,7 +131,7 @@ impl MidiPlayer {
                 println!("     • FluidSynth: brew install fluidsynth");
                 println!("   - Or connect a hardware MIDI device");
             }
-            
+
             #[cfg(target_os = "linux")]
             {
                 println!("   - Install and configure ALSA MIDI or JACK");
