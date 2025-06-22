@@ -415,6 +415,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Inspired by classic MIDI sequencers and players
 - Thanks to the Rust community for amazing crates and documentation
 
+## Free/Public Domain MIDI Sound Effects
+
+The midi folder contains a curated set of short, expressive MIDI sound effects (e.g., success, error, alert, coin, powerup) created by David Horner with the assistance of ChatGPT. All files listed in README.MIDI.md are released into the public domain under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/). You may use, modify, and distribute these files freely, even for commercial purposes, without attribution.
+
+For details and a full index of available sounds, see [README.MIDI.md](midi/README.MIDI.md).
+
+
 ## Changelog
 
 ### v0.1.0 (Current)
