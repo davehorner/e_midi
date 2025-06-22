@@ -16,6 +16,7 @@ use midly::{MidiMessage, Smf, TrackEventKind};
 pub mod ipc;
 pub use ipc::{AppId, Event as IpcEvent, IpcServiceManager};
 
+
 // Global shutdown flag for graceful Ctrl+C handling
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
@@ -112,9 +113,32 @@ impl MidiPlayer {
         if ports.is_empty() {
             println!("❌ No MIDI output ports found!");
             println!("💡 To hear sound, you need:");
-            println!("   - A software synthesizer (like Windows Media Player, VirtualMIDISynth)");
-            println!("   - Or a hardware MIDI device");
-            println!("   - Or enable Windows built-in MIDI synthesizer");
+            
+            #[cfg(target_os = "windows")]
+            {
+                println!("   - Windows built-in MIDI synthesizer (usually available)");
+                println!("   - A software synthesizer (like VirtualMIDISynth)");
+                println!("   - Or a hardware MIDI device");
+            }
+            
+            #[cfg(target_os = "macos")]
+            {
+                println!("   - Enable IAC Driver in Audio MIDI Setup:");
+                println!("     1. Open Audio MIDI Setup (Applications → Utilities)");
+                println!("     2. Window → Show MIDI Studio");
+                println!("     3. Double-click IAC Driver and check 'Device is online'");
+                println!("   - Install a software synthesizer:");
+                println!("     • SimpleSynth: https://notahat.com/simplesynth/");
+                println!("     • FluidSynth: brew install fluidsynth");
+                println!("   - Or connect a hardware MIDI device");
+            }
+            
+            #[cfg(target_os = "linux")]
+            {
+                println!("   - Install and configure ALSA MIDI or JACK");
+                println!("   - Software synthesizer (like FluidSynth, TiMidity++)");
+                println!("   - Or a hardware MIDI device");
+            }
         } else {
             for (i, port) in ports.iter().enumerate() {
                 match midi_out.port_name(port) {
