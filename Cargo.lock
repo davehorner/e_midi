@@ -494,9 +494,9 @@ dependencies = [
 
 [[package]]
 name = "e_grid"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5589a4d7087216e613eae9084ed706eb1f949bcc1e3aedf458e7b5648c3f6b1"
+checksum = "216c1bead3965c2ce8beea8277025b92a1b61532705a374459a6e9b750922e44"
 dependencies = [
  "crossterm 0.29.0",
  "ctrlc",
@@ -515,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "e_midi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ansi_term",
  "clap",
@@ -529,6 +529,7 @@ dependencies = [
  "rimd",
  "serde",
  "serde_json",
+ "winapi",
 ]
 
 [[package]]

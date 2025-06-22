@@ -1,7 +1,5 @@
 # e_midi - Interactive MIDI Player
 
-A feature-rich, interactive MIDI player written in Rust with advanced playback options, looping capabilities, and scan modes.
-
 ## Features
 
 ### 🎵 Playback Modes
@@ -27,6 +25,34 @@ A feature-rich, interactive MIDI player written in Rust with advanced playback o
 - **Random Start Scan**: Begin each song segment at a random position
 - **Progressive Scan**: Gradually increase segment duration for deeper exploration
 - **Configurable Duration**: Set custom scan segment lengths (default: 30 seconds)
+
+
+> **Additional Binary:**
+>
+> - **e_midi_demo01**: Windows-only demo for window focus, resize, and move event integration with e_grid IPC. Useful for testing advanced window event handling and IPC features. Source: `examples/demo_focus_resize_move.rs`.
+>
+> **To run:**
+> ```cmd
+> cargo run --bin e_midi_demo01
+> ```
+> or after building:
+> ```cmd
+> target\release\e_midi_demo01.exe
+> ```
+>
+> ---
+>
+> **Running after install:**
+>
+> After installing with:
+> ```cmd
+> cargo install e_midi
+> ```
+> you can run the main player binary directly as `e_midi` from your terminal or command prompt.  `e_midi_demo01` is also installed and should be available for your use.
+>
+> **Note:** The default `e_midi` binary/lib includes the curated MIDI sound effects from the `midi` folder within the repository, embedded at build time. These static songs are always available, even if you run the binary outside the repository directory.
+
+A feature-rich, interactive MIDI player written in Rust with advanced playback options, looping capabilities, and scan modes.
 
 ## Installation
 

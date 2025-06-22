@@ -18,8 +18,21 @@ This repository contains a curated set of short, expressive **MIDI sound effects
 | `panic_2.mid`   | Rapid alternation — dramatic panic          |
 | `coin.mid`      | Game-style coin pickup jingle               |
 | `powerup.mid`   | Classic power-up scale                      |
+| `0entertainer.mid` | Scott Joplin's "The Entertainer" (public domain, via Mutopia Project) |
 
 Each file is a **standard MIDI file** (Format 0) with a single track and a tempo of 120 BPM, unless otherwise specified.
+
+---
+
+## 📜 Third-Party MIDI File Documentation
+
+### `0entertainer.mid`
+
+Scott Joplin's "The Entertainer" (c. 1902) is included as `0entertainer.mid` in this collection. This MIDI file was sourced from the [Mutopia Project](https://www.mutopiaproject.org/cgibin/make-table.cgi?searchingfor=entertainer), which provides public domain sheet music and MIDI files. According to the [Mutopia Project licensing page](https://www.mutopiaproject.org/legal.html#publicdomain), this file is dedicated to the public domain:
+
+> The contributor of this music has dedicated their contribution into the public domain. You can do what you like with this music - print it out, sell it, change it, distribute it, record it, and perform it, etc.
+
+No attribution is required. See the [Mutopia Project legal page](https://www.mutopiaproject.org/legal.html#publicdomain) for details.
 
 ---
 
