@@ -11,6 +11,8 @@ use std::sync::Arc;
 use super::{serialize_to_payload, AppId, Event, IpcError, IpcPayload, IpcResult};
 
 /// Lock-free event publisher
+/// 
+#[derive(Debug)]
 pub struct EventPublisher {
     publisher: Publisher<Service, IpcPayload, ()>,
     app_id: AppId,

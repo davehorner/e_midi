@@ -164,73 +164,76 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let next_song = Arc::new(Mutex::new(0usize));
     // Initialize the MIDI player as before
     let midi_player = Arc::new(Mutex::new(midi_player));
-    // Remove unused tick_tracker_map
-    // Get the MIDI command sender once, outside the callback
-    let midi_sender = {
-        let player = midi_player.lock().unwrap();
-        player.get_command_sender()
-    };
-    let midi_sender_stop = midi_sender.clone();
-    let midi_sender_focus = midi_sender.clone();
+    let tick_tracker_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<u32>>>>>> = Arc::new(Mutex::new(HashMap::<u64, Arc<Mutex<Option<u32>>>>::new()));
+
+    // --- Remove all SegQueue/MidiCommand/thread code ---
+
     // Set up move/resize START callback
+    let midi_player_start = Arc::clone(&midi_player);
     let song_map_for_start = Arc::clone(&song_map);
     client.set_move_resize_start_callback(move |e| {
-        // let song_index = {
-        //     let map = song_map_for_start.lock().unwrap();
-        //     *map.get(&e.hwnd).unwrap_or(&0)
-        // };
-        let song_index=0;
-        let _ = midi_sender.send(e_midi::MidiCommand::Stop);
-        let _ = midi_sender.send(e_midi::MidiCommand::PlaySongResumeAware {
-            song_index: Some(song_index),
-            position_ms: None,
-            tracks: None,
-            tempo_bpm: None,
+        let song_index = {
+            let map = song_map_for_start.lock().unwrap();
+            *map.get(&e.hwnd).unwrap_or(&0)
+        };
+        // Instead of blocking in the callback, spawn a thread for playback
+        let midi_player_clone = Arc::clone(&midi_player_start);
+        thread::spawn(move || {
+            let mut midi_player = midi_player_clone.lock().unwrap();
+            midi_player.stop_playback();
+            let _ = midi_player.play_song_resume_aware(Some(song_index), None, None, None);
+            println!("▶️ [MOVE/RESIZE START] Play song {} for HWND {:?}", song_index, e.hwnd);
         });
-        println!("▶️ [MOVE/RESIZE START] Queued play song {} for HWND {:?}", song_index, e.hwnd);
     }).unwrap();
 
     // Set up move/resize STOP callback
+    let midi_player_stop = Arc::clone(&midi_player);
     client.set_move_resize_stop_callback(move |e| {
-        let _ = midi_sender_stop.send(e_midi::MidiCommand::Stop);
-        println!("⏹️ [MOVE/RESIZE STOP] Queued stop playback for HWND {:?}", e.hwnd);
+        let mut midi_player = midi_player_stop.lock().unwrap();
+        midi_player.stop_playback();
+        println!("⏹️ [MOVE/RESIZE STOP] Stop playback for HWND {:?}", e.hwnd);
     }).unwrap();
 
-    // Set up focus callback (lock-free)
+    // Set up focus callback (if you want to use it)
+    let midi_player_focus = Arc::clone(&midi_player);
     let song_map_for_focus = Arc::clone(&song_map);
     let next_song_for_focus = Arc::clone(&next_song);
-    client.set_focus_callback(move |focus_event: WindowFocusEvent| {
-        let (class, title) = get_window_class_and_title(focus_event.hwnd);
-        if !is_hwnd_foreground(focus_event.hwnd) {
-            println!("[skip] Focus event for HWND {} - Type: {} [class='{}', title='{}'] (not foreground)", focus_event.hwnd, focus_event.event_type, class, title);
-            return;
-        }
-        let hwnd = focus_event.hwnd;
-        let focused = focus_event.event_type == 0;
-        let mut song_map = song_map_for_focus.lock().unwrap();
-        let song_index = if let Some(idx) = song_map.get(&hwnd) {
-            println!("🎵 Using assigned song {} for HWND {} [class='{}', title='{}']", idx, hwnd, class, title);
-            *idx
-        } else {
-            println!("❗ No song assigned for HWND {} [class='{}', title='{}']", hwnd, class, title);
-            let mut idx = next_song_for_focus.lock().unwrap();
-            let song_index = *idx % total_songs;
-            *idx += 1;
-            song_map.insert(hwnd, song_index);
-            song_index
-        };
-        if focused {
-            let _ = midi_sender_focus.send(e_midi::MidiCommand::Stop);
-            let _ = midi_sender_focus.send(e_midi::MidiCommand::PlaySongResumeAware {
-                song_index: Some(song_index),
-                position_ms: None,
-                tracks: None,
-                tempo_bpm: None,
+    client.set_focus_callback({
+        let midi_player_focus = Arc::clone(&midi_player_focus);
+        let song_map_for_focus = Arc::clone(&song_map_for_focus);
+        let next_song_for_focus = Arc::clone(&next_song_for_focus);
+        move |focus_event: WindowFocusEvent| {
+            let (class, title) = get_window_class_and_title(focus_event.hwnd);
+            if !is_hwnd_foreground(focus_event.hwnd) {
+                println!("[skip] Focus event for HWND {} - Type: {} [class='{}', title='{}'] (not foreground)", focus_event.hwnd, focus_event.event_type, class, title);
+                return;
+            }
+            let hwnd = focus_event.hwnd;
+            let focused = focus_event.event_type == 0;
+            let mut song_map = song_map_for_focus.lock().unwrap();
+            let mut song_index = 0;
+            if song_map.get(&hwnd).is_none() {
+                println!("❗ No song assigned for HWND {} [class='{}', title='{}']", hwnd, class, title);
+                let mut idx = next_song_for_focus.lock().unwrap();
+                song_index = *idx % total_songs;
+                *idx += 1;
+                song_map.insert(hwnd, song_index);
+            } else {
+                song_index = *song_map.get(&hwnd).unwrap();
+                println!("🎵 Using assigned song {} for HWND {} [class='{}', title='{}']", song_index, hwnd, class, title);
+            }
+            let midi_player_clone = Arc::clone(&midi_player_focus);
+            thread::spawn(move || {
+                let mut midi_player = midi_player_clone.lock().unwrap();
+                if focused {
+                    midi_player.stop_playback();
+                    let _ = midi_player.play_song_resume_aware(Some(song_index), None, None, None);
+                    println!("▶️ [FOCUS] Play song {} for HWND {:?}", song_index, hwnd);
+                } else {
+                    midi_player.stop_playback();
+                    println!("⏹️ [FOCUS] Stop playback for HWND {:?}", hwnd);
+                }
             });
-            println!("▶️ [FOCUS] Queued play song {} for HWND {:?}", song_index, hwnd);
-        } else {
-            let _ = midi_sender_focus.send(e_midi::MidiCommand::Stop);
-            println!("⏹️ [FOCUS] Queued stop playback for HWND {:?}", hwnd);
         }
     }).unwrap();
 
