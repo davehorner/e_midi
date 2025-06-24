@@ -48,6 +48,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/davehorner/e_midi/compare/v0.1.2...v0.1.3) - 2025-06-24
+
+### Added
+
+- *(midi)* add resume-aware background playback and lock-free queue integration
+
+### Other
+
+- play_resune and new player.get_command_sender() midi_sender.send(e_midi::MidiCommand::PlaySongResumeAware
+- song_resume
+
 ## [0.1.2](https://github.com/davehorner/e_midi/compare/v0.1.1...v0.1.2) - 2025-06-22
 
 ### Added
