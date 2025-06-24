@@ -5,7 +5,7 @@
 // It requires the e_grid and e_midi crates to be added to your Cargo.toml file.
 
 #[cfg(target_os = "windows")]
-use e_grid::ipc_protocol::{WindowEvent, WindowFocusEvent};
+use e_grid::ipc_protocol::WindowFocusEvent;
 #[cfg(target_os = "windows")]
 use e_grid::ipc_server::start_server;
 #[cfg(target_os = "windows")]
@@ -14,7 +14,6 @@ use e_midi::MidiPlayer;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 #[cfg(target_os = "windows")]
 use winapi::shared::windef::POINT;
 #[cfg(target_os = "windows")]
@@ -23,7 +22,6 @@ use winapi::um::winuser::GetParent;
 use winapi::um::winuser::{GetClassNameW, GetWindowTextW};
 #[cfg(target_os = "windows")]
 use winapi::um::winuser::{GetCursorPos, GetForegroundWindow, WindowFromPoint};
-use crossbeam_queue::SegQueue;
 
 #[derive(Debug)]
 enum MidiCommand {
@@ -164,35 +162,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let next_song = Arc::new(Mutex::new(0usize));
     // Initialize the MIDI player as before
     let midi_player = Arc::new(Mutex::new(midi_player));
-    let tick_tracker_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<u32>>>>>> = Arc::new(Mutex::new(HashMap::<u64, Arc<Mutex<Option<u32>>>>::new()));
+    let tick_tracker_map: Arc<Mutex<HashMap<u64, Arc<Mutex<Option<u32>>>>>> =
+        Arc::new(Mutex::new(HashMap::<u64, Arc<Mutex<Option<u32>>>>::new()));
 
     // --- Remove all SegQueue/MidiCommand/thread code ---
 
     // Set up move/resize START callback
     let midi_player_start = Arc::clone(&midi_player);
     let song_map_for_start = Arc::clone(&song_map);
-    client.set_move_resize_start_callback(move |e| {
-        let song_index = {
-            let map = song_map_for_start.lock().unwrap();
-            *map.get(&e.hwnd).unwrap_or(&0)
-        };
-        // Instead of blocking in the callback, spawn a thread for playback
-        let midi_player_clone = Arc::clone(&midi_player_start);
-        thread::spawn(move || {
-            let mut midi_player = midi_player_clone.lock().unwrap();
-            midi_player.stop_playback();
-            let _ = midi_player.play_song_resume_aware(Some(song_index), None, None, None);
-            println!("▶️ [MOVE/RESIZE START] Play song {} for HWND {:?}", song_index, e.hwnd);
-        });
-    }).unwrap();
+    client
+        .set_move_resize_start_callback(move |e| {
+            let song_index = {
+                let map = song_map_for_start.lock().unwrap();
+                *map.get(&e.hwnd).unwrap_or(&0)
+            };
+            // Instead of blocking in the callback, spawn a thread for playback
+            let midi_player_clone = Arc::clone(&midi_player_start);
+            thread::spawn(move || {
+                let mut midi_player = midi_player_clone.lock().unwrap();
+                midi_player.stop_playback();
+                let _ = midi_player.play_song_resume_aware(Some(song_index), None, None, None);
+                println!(
+                    "▶️ [MOVE/RESIZE START] Play song {} for HWND {:?}",
+                    song_index, e.hwnd
+                );
+            });
+        })
+        .unwrap();
 
     // Set up move/resize STOP callback
     let midi_player_stop = Arc::clone(&midi_player);
-    client.set_move_resize_stop_callback(move |e| {
-        let mut midi_player = midi_player_stop.lock().unwrap();
-        midi_player.stop_playback();
-        println!("⏹️ [MOVE/RESIZE STOP] Stop playback for HWND {:?}", e.hwnd);
-    }).unwrap();
+    client
+        .set_move_resize_stop_callback(move |e| {
+            let mut midi_player = midi_player_stop.lock().unwrap();
+            midi_player.stop_playback();
+            println!("⏹️ [MOVE/RESIZE STOP] Stop playback for HWND {:?}", e.hwnd);
+        })
+        .unwrap();
 
     // Set up focus callback (if you want to use it)
     let midi_player_focus = Arc::clone(&midi_player);

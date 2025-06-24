@@ -22,7 +22,7 @@ pub struct ServiceInfo {
 }
 
 /// Service registry for managing available services
-/// 
+///
 #[derive(Debug)]
 pub struct ServiceRegistry {
     services: HashMap<AppId, ServiceInfo>,
@@ -113,7 +113,7 @@ impl ServiceRegistry {
 }
 
 /// IPC service manager for coordinating publishers and subscribers
-/// 
+///
 #[derive(Debug)]
 pub struct IpcServiceManager {
     app_id: AppId,

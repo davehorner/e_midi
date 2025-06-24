@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use super::{AppId, Event, IpcError, IpcPayload, IpcResult};
 
 /// Lock-free event subscriber
-/// 
+///
 #[derive(Debug)]
 pub struct EventSubscriber {
     subscriber: Subscriber<Service, IpcPayload, ()>,
