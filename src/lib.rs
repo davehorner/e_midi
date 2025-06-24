@@ -100,6 +100,12 @@ pub struct MidiPlayer {
     // Playback control
     playback_stop_flag: Arc<AtomicBool>,
     is_playing: Arc<AtomicBool>, // Shared playback state
+
+    // Persistent resume state
+    current_song_index: Option<usize>,
+    elapsed_ms: Option<u32>,
+    current_tick: Option<u32>,
+    start_instant: Option<Instant>,
 }
 
 impl MidiPlayer {
@@ -172,6 +178,10 @@ impl MidiPlayer {
             _midi_thread: midi_thread,
             playback_stop_flag: Arc::new(AtomicBool::new(false)),
             is_playing: Arc::new(AtomicBool::new(false)),
+            current_song_index: None,
+            elapsed_ms: None,
+            current_tick: None,
+            start_instant: None,
         })
     }
 
@@ -236,6 +246,19 @@ impl MidiPlayer {
     pub fn stop_playback(&mut self) {
         self.playback_stop_flag.store(true, Ordering::Relaxed);
         self.is_playing.store(false, Ordering::Relaxed);
+
+        // Always record resume state if a song was ever started
+        if let (Some(_idx), Some(start)) = (self.current_song_index, self.start_instant) {
+            let elapsed = start.elapsed().as_millis();
+            // Clamp to u32::MAX
+            let elapsed_ms = if elapsed > u32::MAX as u128 {
+                u32::MAX
+            } else {
+                elapsed as u32
+            };
+            self.elapsed_ms = Some(elapsed_ms);
+            // self.current_song_index is already set
+        }
 
         // Send all notes off command through the MIDI channel
         if let Err(_) = self.send_midi_command(MidiCommand::AllNotesOff) {
@@ -1645,7 +1668,7 @@ impl MidiPlayer {
         let should_quit = Arc::new(Mutex::new(false));
         let should_next = Arc::new(Mutex::new(false));
 
-        // Only spawn input handling thread if in interactive mode
+             // Only spawn input handling thread if in interactive mode
         let input_thread = if interactive {
             let tempo_clone = Arc::clone(&tempo_multiplier);
             let quit_clone = Arc::clone(&should_quit);
@@ -1687,6 +1710,7 @@ impl MidiPlayer {
         } else {
             None
         };
+        
         let start = Instant::now();
         let mut idx = 0;
         let mut last_tempo = initial_tempo_bpm as f32 * 1000.0;
@@ -2237,5 +2261,256 @@ impl MidiPlayer {
         }
 
         Ok(())
+    }
+
+    /// Play a song with resume support. All state is managed internally.
+    /// If song_index is None, resumes last song. If position_ms is None, resumes last position.
+    /// If tracks or tempo_bpm are None, uses defaults.
+    pub fn play_song_resume_aware(
+        &mut self,
+        song_index: Option<usize>,
+        position_ms: Option<u32>,
+        tracks: Option<Vec<usize>>,
+        tempo_bpm: Option<u32>,
+    ) -> Result<bool, Box<dyn Error>> {
+        // Ensure MIDI device is reset before playback
+        let _ = self.send_midi_command(MidiCommand::AllNotesOff);
+        // Diagnostics: log entry and state
+        println!("[DIAG][resume] play_song_resume_aware called: song_index={:?}, position_ms={:?}, tracks={:?}, tempo_bpm={:?}, current_song_index={:?}, elapsed_ms={:?}, current_tick={:?}, is_playing={}",
+            song_index, position_ms, tracks, tempo_bpm, self.current_song_index, self.elapsed_ms, self.current_tick, self.is_playing());
+        // Determine which song to play
+        let idx = match song_index.or(self.current_song_index) {
+            Some(i) => i,
+            None => {
+                println!("[DIAG][resume] No song index provided and no previous song to resume");
+                return Err("No song index provided and no previous song to resume".into());
+            }
+        };
+        if idx >= self.get_total_song_count() {
+            println!("[DIAG][resume] Invalid song index: {}", idx);
+            return Err("Invalid song index".into());
+        }
+        let selected_song = self.get_song(idx).ok_or("Invalid song index")?;
+        let tempo = tempo_bpm.unwrap_or(selected_song.default_tempo);
+        let track_indices = if let Some(ref tracks) = tracks {
+            if tracks.contains(&0) {
+                selected_song.tracks.iter().map(|t| t.index).collect()
+            } else {
+                tracks.clone()
+            }
+        } else {
+            selected_song.tracks.iter().map(|t| t.index).collect()
+        };
+        // Get events for the song
+        let mut events = self.get_events_for_song(idx, &track_indices, tempo);
+        println!("[DIAG][resume] Got {} events for song {} (tempo {}), tracks={:?}", events.len(), idx, tempo, track_indices);
+        if !events.is_empty() {
+            println!("[DIAG][resume] First event: start_ms={}, dur_ms={}, pitch={}", events[0].start_ms, events[0].dur_ms, events[0].pitch);
+            println!("[DIAG][resume] Last event: start_ms={}, dur_ms={}, pitch={}", events[events.len()-1].start_ms, events[events.len()-1].dur_ms, events[events.len()-1].pitch);
+        }
+        // Determine resume position
+        let start_ms = if let Some(pos) = position_ms {
+            pos
+        } else if let Some(ms) = self.elapsed_ms {
+            ms
+        } else if let Some(tick) = self.current_tick {
+            tick
+        } else {
+            0
+        };
+        // Snap to the closest event (not just >= start_ms)
+        let resume_event_time = {
+            if events.is_empty() {
+                0
+            } else {
+                // Find the event with start_ms closest to start_ms
+                let mut min_diff = u32::MAX;
+                let mut closest = events[0].start_ms;
+                for e in &events {
+                    let diff = if e.start_ms > start_ms {
+                        e.start_ms - start_ms
+                    } else {
+                        start_ms - e.start_ms
+                    };
+                    if diff < min_diff {
+                        min_diff = diff;
+                        closest = e.start_ms;
+                    }
+                }
+                closest
+            }
+        };
+        println!("[DEBUG][resume] Requested start_ms={}, snapped to event start_ms={}", start_ms, resume_event_time);
+        // Filter events for resume
+        let filtered_events: Vec<Note> = events
+            .into_iter()
+            .filter(|e| e.start_ms >= resume_event_time)
+            .collect();
+        let mut events = if filtered_events.is_empty() {
+            // If resume position is at/past end, reset to beginning
+            self.current_tick = Some(0);
+            self.elapsed_ms = Some(0);
+            println!("[DEBUG][resume] Resume position at/past end, resetting to beginning");
+            self.get_events_for_song(idx, &track_indices, tempo)
+        } else {
+            filtered_events
+        };
+        // Interpolated resume: build new event list
+        let mut interpolated_events = Vec::new();
+        for note in &events {
+            let note_end = note.start_ms + note.dur_ms;
+            if note.start_ms <= start_ms && start_ms < note_end {
+                // Note is sounding at resume time
+                let remaining = note_end - start_ms;
+                if remaining > 0 {
+                    interpolated_events.push(Note {
+                        start_ms: 0,
+                        dur_ms: remaining,
+                        chan: note.chan,
+                        pitch: note.pitch,
+                        vel: note.vel,
+                    });
+                }
+            } else if note.start_ms > start_ms {
+                // Note starts after resume time
+                interpolated_events.push(Note {
+                    start_ms: note.start_ms - start_ms,
+                    dur_ms: note.dur_ms,
+                    chan: note.chan,
+                    pitch: note.pitch,
+                    vel: note.vel,
+                });
+            }
+        }
+        if interpolated_events.is_empty() {
+            // If resume position is at/past end, reset to beginning
+            self.current_tick = Some(0);
+            self.elapsed_ms = Some(0);
+            println!("[DEBUG][resume] Resume position at/past end, resetting to beginning");
+            interpolated_events = self.get_events_for_song(idx, &track_indices, tempo);
+        }
+        println!("[DEBUG][resume] Interpolated resume: requested start_ms={}, events after interpolation: {}", start_ms, interpolated_events.len());
+        if !interpolated_events.is_empty() {
+            println!("[DIAG][resume] First interpolated event: start_ms={}, dur_ms={}, pitch={}", interpolated_events[0].start_ms, interpolated_events[0].dur_ms, interpolated_events[0].pitch);
+            println!("[DIAG][resume] Last interpolated event: start_ms={}, dur_ms={}, pitch={}", interpolated_events[interpolated_events.len()-1].start_ms, interpolated_events[interpolated_events.len()-1].dur_ms, interpolated_events[interpolated_events.len()-1].pitch);
+        }
+        // Update internal state
+        self.current_song_index = Some(idx);
+        self.current_tick = Some(resume_event_time);
+        self.elapsed_ms = Some(resume_event_time);
+        self.start_instant = Some(Instant::now());
+        self.reset_stop_flag();
+        self.is_playing.store(true, Ordering::Relaxed);
+        // Do NOT clear resume state here! Only clear after playback is finished.
+        let midi_sender = self.midi_sender.clone();
+        let stop_flag = Arc::clone(&self.playback_stop_flag);
+        let playing_state = Arc::clone(&self.is_playing);
+        let resume_state = self.elapsed_ms;
+        // Spawn background thread for playback and high-precision resume
+        let start_ms_clone = resume_event_time;
+        println!("[DIAG][resume] Spawning background playback thread: events={}, tempo={}, start_ms_clone={}", interpolated_events.len(), tempo, start_ms_clone);
+        thread::spawn(move || {
+            if let Err(e) = Self::play_events_in_background_with_tick(
+                interpolated_events,
+                tempo,
+                midi_sender,
+                stop_flag,
+                playing_state,
+                start_ms_clone,
+            ) {
+                eprintln!("Background playback error: {}", e);
+            }
+            // Optionally: clear resume state here if needed (requires &mut self, so may need channel)
+        });
+        Ok(true)
+    }
+    /// Static method to play events in a background thread and update tick (for resume-aware playback)
+    fn play_events_in_background_with_tick(
+        events: Vec<Note>,
+        tempo_bpm: u32,
+        midi_sender: std::sync::mpsc::Sender<MidiCommand>,
+        stop_flag: Arc<AtomicBool>,
+        playing_state: Arc<AtomicBool>,
+        start_ms: u32,
+    ) -> Result<(), Box<dyn Error>> {
+        use std::thread;
+        use std::time::Instant;
+        #[derive(Copy, Clone, Debug)]
+        enum Kind {
+            On,
+            Off,
+        }
+        #[derive(Debug)]
+        struct Scheduled {
+            t: u32,
+            kind: Kind,
+            chan: u8,
+            p: u8,
+            v: u8,
+        }
+        let mut timeline = Vec::with_capacity(events.len() * 2);
+        for n in &events {
+            timeline.push(Scheduled {
+                t: n.start_ms,
+                kind: Kind::On,
+                chan: n.chan,
+                p: n.pitch,
+                v: n.vel,
+            });
+            timeline.push(Scheduled {
+                t: n.start_ms + n.dur_ms,
+                kind: Kind::Off,
+                chan: n.chan,
+                p: n.pitch,
+                v: 0,
+            });
+        }
+        timeline.sort_by_key(|e| e.t);
+        println!("[DIAG][bg] play_events_in_background_with_tick: timeline events={}, tempo_bpm={}, start_ms={}", timeline.len(), tempo_bpm, start_ms);
+        if !timeline.is_empty() {
+            println!("[DIAG][bg] First event: t={}, kind={:?}, chan={}, p={}, v={}", timeline[0].t, timeline[0].kind, timeline[0].chan, timeline[0].p, timeline[0].v);
+            println!("[DIAG][bg] Last event: t={}, kind={:?}, chan={}, p={}, v={}", timeline[timeline.len()-1].t, timeline[timeline.len()-1].kind, timeline[timeline.len()-1].chan, timeline[timeline.len()-1].p, timeline[timeline.len()-1].v);
+        }
+        let start = Instant::now();
+        let mut idx = 0;
+        // Skip events before start_ms
+        while idx < timeline.len() && timeline[idx].t < start_ms {
+            idx += 1;
+        }
+        println!("[DIAG][bg] Starting playback loop at idx={}, timeline.len()={}, start_ms={}", idx, timeline.len(), start_ms);
+        while idx < timeline.len() {
+            if should_shutdown() || stop_flag.load(Ordering::Relaxed) {
+                println!("[DIAG][bg] Playback stopped: should_shutdown or stop_flag");
+                break;
+            }
+            let event = &timeline[idx];
+            let target_time_ms = event.t.saturating_sub(start_ms) as u64;
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            if elapsed_ms < target_time_ms {
+                thread::sleep(Duration::from_millis(std::cmp::min(
+                    target_time_ms - elapsed_ms,
+                    50,
+                )));
+                continue;
+            }
+            // Send MIDI event through the channel
+            let msg = match event.kind {
+                Kind::On => vec![0x90 | event.chan, event.p, event.v],
+                Kind::Off => vec![0x80 | event.chan, event.p, 0],
+            };
+            if let Err(_) = midi_sender.send(MidiCommand::SendMessage(msg)) {
+                println!("[DIAG][bg] Failed to send MIDI command: channel closed?");
+                break;
+            }
+            idx += 1;
+        }
+        println!("[DIAG][bg] Playback loop finished, setting playing_state to false");
+        playing_state.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Get the playback start instant, if any
+    pub fn get_start_instant(&self) -> Option<std::time::Instant> {
+        self.start_instant
     }
 }
