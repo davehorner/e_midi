@@ -28,7 +28,7 @@ crossbeam-queue = "0.3.12"
 dashmap = "6.1.0"
 
 [target.'cfg(windows)'.dependencies]
-e_grid = "0.1.1"
+e_grid = "0.1.2"
 #{ path = "e_grid" } # 0.1.1"}
 winapi = "0.3.9"
 
