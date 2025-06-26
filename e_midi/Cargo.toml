@@ -1,0 +1,48 @@
+[package]
+name = "e_midi"
+version = "0.1.4"
+edition = "2021"
+authors = ["David Horner"]
+description = "An interactive/CLI/library MIDI player with advanced playback options, looping, and scan modes."
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/davehorner/e_midi/"
+repository = "https://github.com/davehorner/e_midi/"
+keywords = ["midi", "music", "audio", "player", "interactive"]
+categories = ["multimedia::audio", "command-line-utilities"]
+rust-version = "1.70"
+
+[dependencies]
+ansi_term = "0.12.1"
+midir = "0.10.1"
+rimd = "0.0.1"
+midly = "0.5.3"
+crossterm = "0.29.0"
+ratatui = "0.28"
+clap = { version = "4.0", features = ["derive"] }
+ctrlc = "3.4"
+iceoryx2 = "0.6.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+crossbeam-queue = "0.3.12"
+dashmap = "6.1.0"
+musicxml = "1.1.2"
+#reqwest = { version = "0.12.20", features = ["blocking"] }
+#quick-xml = "0.37.5"
+e_midi_shared = "0.1.0"
+#e_midi_shared = { path = "../e_midi_shared" }
+log = "0.4.27"
+
+[target.'cfg(windows)'.dependencies]
+e_grid = "0.1.2"
+winapi = "0.3.9"
+
+[build-dependencies]
+midly = "0.5.3"
+rimd = "0.0.1"
+e_midi_shared = "0.1.0"
+#e_midi_shared = { path = "../e_midi_shared" }
+
+[[bin]]
+name = "e_midi_demo01"
+path = "examples/e_midi_demo01.rs"
