@@ -48,6 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/davehorner/e_midi/compare/v0.1.3...v0.1.4) - 2025-06-26
+
+### Added
+
+- *(musicxml)* multi-track improvements, add MusicXML support and shared song embedding logic
+
+### Other
+
+- update dependencies in Cargo.toml and Cargo.lock to latest versions
+
 ## [0.1.3](https://github.com/davehorner/e_midi/compare/v0.1.2...v0.1.3) - 2025-06-24
 
 ### Added

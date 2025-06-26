@@ -2,6 +2,8 @@ use clap::{Parser, Subcommand};
 use std::error::Error;
 
 use crate::MidiPlayer;
+// use reqwest::blocking as reqwest_blocking;
+use std::io::Read;
 
 #[derive(Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -103,11 +105,58 @@ pub fn run_cli() -> Result<(), Box<dyn Error>> {
 
     // Process global options to add songs/directories to dynamic playlist
     for path in &cli.add_songs {
-        if let Err(e) = player.add_song_from_file(path) {
-            eprintln!("❌ Failed to add {}: {}", path.display(), e);
+        let path_str = path.to_string_lossy();
+        // if path_str.starts_with("http://") || path_str.starts_with("https://") {
+        //     // Download file from URL
+        //     match reqwest_blocking::get(path_str.as_ref()) {
+        //         Ok(mut resp) => {
+        //             if resp.status().is_success() {
+        //                 let mut buf = Vec::new();
+        //                 if let Err(e) = resp.read_to_end(&mut buf) {
+        //                     eprintln!("❌ Failed to read from {}: {}", path_str, e);
+        //                     continue;
+        //                 }
+        //                 // Guess file type from URL
+        //                 if path_str.ends_with(".mid") || path_str.ends_with(".midi") {
+        //                     if let Err(e) = player.add_song_from_midi_data(&buf, Some(&path_str)) {
+        //                         eprintln!("❌ Failed to add MIDI from {}: {}", path_str, e);
+        //                     }
+        //                 } else if path_str.ends_with(".xml") || path_str.ends_with(".musicxml") {
+        //                     if let Err(e) = player.add_song_from_musicxml_data(&buf, Some(&path_str)) {
+        //                         eprintln!("❌ Failed to add MusicXML from {}: {}", path_str, e);
+        //                     }
+        //                 } else {
+        //                     eprintln!("❌ Unknown file type for URL: {}", path_str);
+        //                 }
+        //             } else {
+        //                 eprintln!("❌ Failed to download {}: HTTP {}", path_str, resp.status());
+        //             }
+        //         }
+        //         Err(e) => {
+        //             eprintln!("❌ Failed to download {}: {}", path_str, e);
+        //         }
+        //     }
+        // } else 
+        
+        if path_str.ends_with(".mid") || path_str.ends_with(".midi") {
+            if let Err(e) = player.add_song_from_file(path) {
+                eprintln!("❌ Failed to add {}: {}", path.display(), e);
+            }
+        // } else if path_str.ends_with(".xml") || path_str.ends_with(".musicxml") {
+        //     if let Err(e) = player.add_song_from_musicxml_file(path) {
+        //         eprintln!("❌ Failed to add {}: {}", path.display(), e);
+        //     }
+        } else {
+            eprintln!("❌ Unknown file type: {}", path.display());
         }
     }
 
+    // for path in &cli.scan_directories {
+    //     match player.scan_directory_with_musicxml(path) {
+    //         Ok(count) => println!("✅ Added {} songs from {}", count, path.display()),
+    //         Err(e) => eprintln!("❌ Failed to scan {}: {}", path.display(), e),
+    //     }
+    // }
     for path in &cli.scan_directories {
         match player.scan_directory(path) {
             Ok(count) => println!("✅ Added {} songs from {}", count, path.display()),
