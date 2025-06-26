@@ -13,7 +13,35 @@ pub struct TrackInfo {
 pub enum SongType {
     Midi,
     MusicXml,
+    Ogg,
+    Mp3,
+    Mp4,
+    Webm,
+    YouTube,
     Other,
+}
+
+#[derive(Debug, Clone)]
+pub enum SongSource {
+    EmbeddedMidi(&'static [u8]),
+    EmbeddedOgg(&'static [u8]),
+    EmbeddedMp3(&'static [u8]),
+    EmbeddedMp4(&'static [u8]),
+    EmbeddedWebm(&'static [u8]),
+    YouTube { video_id: &'static str, start: Option<u64>, end: Option<u64> },
+    FilePath(&'static str),
+    None,
+}
+
+impl SongSource {
+    pub fn url(&self) -> Option<String> {
+        match self {
+            SongSource::YouTube { video_id, .. } => {
+                Some(format!("https://www.youtube.com/watch?v={}", video_id))
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -24,6 +52,7 @@ pub struct SongInfo {
     pub default_tempo: u32,
     pub ticks_per_q: Option<u32>,
     pub song_type: SongType,
+    pub source: SongSource,
     pub track_index_map: std::collections::HashMap<usize, usize>, // user index -> dense index
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "e_midi_shared"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Shared types/midi/MusicXML logic for e_midi and its build script."
 authors = ["David Horner"]

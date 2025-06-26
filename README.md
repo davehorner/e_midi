@@ -3,6 +3,8 @@
 e_midi is more than a simple midi player.  It currently supports .mid and .xml files.
 MusicXML support is very alpha and if you're interested, PRs are welcome!
 
+now includes .ogg and .mp3 embedding/playing via rodio.  mp4/webm embed but do not play yet.
+
 ## Features
 
 ### 🎵 Playback Modes
