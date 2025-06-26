@@ -1,0 +1,19 @@
+[package]
+name = "e_midi_shared"
+version = "0.1.0"
+edition = "2021"
+description = "Shared types/midi/MusicXML logic for e_midi and its build script."
+authors = ["David Horner"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/davehorner/e_midi/"
+repository = "https://github.com/davehorner/e_midi/"
+keywords = ["midi", "music", "audio", "player", "interactive"]
+categories = ["multimedia::audio", "command-line-utilities"]
+rust-version = "1.70"
+
+
+[dependencies]
+musicxml = "1.1.2"
+quick-xml = "0.37.5"
+midly = "0.5.3"
