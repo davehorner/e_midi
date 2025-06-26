@@ -85,7 +85,9 @@ pub fn extract_midi_songs(midi_dir: &Path) -> Vec<MidiSongInfo> {
                                 midly::MidiMessage::NoteOff { key, .. }
                                 | midly::MidiMessage::NoteOn { key, .. } => {
                                     let time_ticks = abs_time;
-                                    if let Some(start_ticks) = note_ons.remove(&(channel.as_int(), key.as_int())) {
+                                    if let Some(start_ticks) =
+                                        note_ons.remove(&(channel.as_int(), key.as_int()))
+                                    {
                                         let duration_ticks = time_ticks.saturating_sub(start_ticks);
                                         track_notes.push((
                                             start_ticks,

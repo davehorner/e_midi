@@ -1,3 +1,6 @@
 [workspace]
 members = ["e_midi_shared","e_midi"]
 resolver = "2"
+
+[patch.crates-io]
+e_midi_shared = { path = "e_midi_shared" }

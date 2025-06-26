@@ -28,7 +28,11 @@ pub enum SongSource {
     EmbeddedMp3(&'static [u8]),
     EmbeddedMp4(&'static [u8]),
     EmbeddedWebm(&'static [u8]),
-    YouTube { video_id: &'static str, start: Option<u64>, end: Option<u64> },
+    YouTube {
+        video_id: &'static str,
+        start: Option<u64>,
+        end: Option<u64>,
+    },
     FilePath(&'static str),
     None,
 }
@@ -54,6 +58,7 @@ pub struct SongInfo {
     pub song_type: SongType,
     pub source: SongSource,
     pub track_index_map: std::collections::HashMap<usize, usize>, // user index -> dense index
+    pub duration_ms: Option<u32>, // Duration in milliseconds, if known
 }
 
 #[derive(Clone, Debug)]
