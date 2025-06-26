@@ -29,8 +29,8 @@ dashmap = "6.1.0"
 musicxml = "1.1.2"
 #reqwest = { version = "0.12.20", features = ["blocking"] }
 #quick-xml = "0.37.5"
-#e_midi_shared = "0.1.0"
-e_midi_shared = { path = "../e_midi_shared" }
+e_midi_shared = "0.1.0"
+#e_midi_shared = { path = "../e_midi_shared" }
 log = "0.4.27"
 
 [target.'cfg(windows)'.dependencies]
@@ -40,8 +40,8 @@ winapi = "0.3.9"
 [build-dependencies]
 midly = "0.5.3"
 rimd = "0.0.1"
-#e_midi_shared = "0.1.0"
-e_midi_shared = { path = "../e_midi_shared" }
+e_midi_shared = "0.1.0"
+#e_midi_shared = { path = "../e_midi_shared" }
 
 [[bin]]
 name = "e_midi_demo01"
