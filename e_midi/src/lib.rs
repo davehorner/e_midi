@@ -9,18 +9,23 @@ use std::sync::{
 use std::thread::{self, sleep, JoinHandle};
 use std::time::{Duration, Instant};
 
+use e_midi_shared::play_media_file;
 use e_midi_shared::types::SongSource;
+use log::trace;
 use midir::MidiOutput;
 use midly::{MidiMessage, Smf, TrackEventKind};
-use log::trace;
 // Import the IPC module (now fixed)
 pub mod ipc;
+pub use e_midi_shared::types::{Note, SongInfo, SongType, TrackInfo, XmlSongInfo, XmlTrackInfo};
 pub use ipc::{AppId, Event as IpcEvent, IpcServiceManager};
-use rodio::OutputStream;
-use rodio::Sink;
+#[cfg(feature = "uses_rodio")]
 use rodio::Decoder;
+#[cfg(feature = "uses_rodio")]
+use rodio::OutputStream;
+#[cfg(feature = "uses_rodio")]
+use rodio::Sink;
+#[cfg(feature = "uses_rodio")]
 use std::io::Cursor;
-pub use e_midi_shared::types::{SongInfo, TrackInfo, Note, SongType, XmlTrackInfo, XmlSongInfo};
 // Global shutdown flag for graceful Ctrl+C handling
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
@@ -418,7 +423,10 @@ impl MidiPlayer {
                 Kind::On => vec![0x90 | event.chan, event.p, event.v],
                 Kind::Off => vec![0x80 | event.chan, event.p, 0],
             };
-            println!("[PLAYBACK SEND] idx={} chan={} pitch={} v={} track={}", idx, event.chan, event.p, event.v, event.track);
+            println!(
+                "[PLAYBACK SEND] idx={} chan={} pitch={} v={} track={}",
+                idx, event.chan, event.p, event.v, event.track
+            );
             if let Err(_) = midi_sender.send(MidiCommand::SendMessage(msg)) {
                 // MIDI thread is probably shutdown, exit gracefully
                 break;
@@ -459,28 +467,27 @@ impl MidiPlayer {
         let mut last_positions: HashMap<usize, u32> = HashMap::new();
         let mut current_playing: Option<(usize, u32)> = None; // (song_index, start_ms)
                                                               // Helper to stop playback
-        let stop_playback =
-            |stop_flag: &Arc<AtomicBool>,
-             playback_thread: &mut Option<
-                std::thread::JoinHandle<(midir::MidiOutputConnection, u32)>,
-            >,
-             current_playing: &mut Option<(usize, u32)>,
-             last_positions: &mut HashMap<usize, u32>| {
-                stop_flag.store(true, Ordering::Relaxed);
-                // Wait for playback thread to finish and return the connection and last played ms
-                if let Some(handle) = playback_thread.take() {
-                    if let Ok((conn_back, last_ms)) = handle.join() {
-                        // Record last position if possible
-                        if let Some((song_idx, _)) = current_playing.take() {
-                            last_positions.insert(song_idx, last_ms);
-                        }
-                        return Some(conn_back);
+        let stop_playback = |stop_flag: &Arc<AtomicBool>,
+                             playback_thread: &mut Option<
+            std::thread::JoinHandle<(midir::MidiOutputConnection, u32)>,
+        >,
+                             current_playing: &mut Option<(usize, u32)>,
+                             last_positions: &mut HashMap<usize, u32>| {
+            stop_flag.store(true, Ordering::Relaxed);
+            // Wait for playback thread to finish and return the connection and last played ms
+            if let Some(handle) = playback_thread.take() {
+                if let Ok((conn_back, last_ms)) = handle.join() {
+                    // Record last position if possible
+                    if let Some((song_idx, _)) = current_playing.take() {
+                        last_positions.insert(song_idx, last_ms);
                     }
+                    return Some(conn_back);
                 }
-                // If not joined, still clear current_playing
-                current_playing.take();
-                None
-            };
+            }
+            // If not joined, still clear current_playing
+            current_playing.take();
+            None
+        };
 
         // Move conn into the playback thread, get it back after join
         let mut conn_opt = Some(conn);
@@ -764,19 +771,94 @@ impl MidiPlayer {
     pub fn get_config_mut(&mut self) -> &mut LoopConfig {
         &mut self.config
     }
+
+    /// Helper to format duration_ms as mm:ss or seconds
+    fn format_duration(duration_ms: Option<u32>) -> String {
+        match duration_ms {
+            Some(ms) => {
+                if ms == 0 {
+                    "0".to_string()
+                } else if ms < 1000 {
+                    format!("{}ms", ms)
+                } else {
+                    let total_seconds = ms / 1000;
+                    let minutes = total_seconds / 60;
+                    let seconds = total_seconds % 60;
+                    if minutes > 0 {
+                        format!("{:02}:{:02}", minutes, seconds)
+                    } else {
+                        format!("{}s", seconds)
+                    }
+                }
+            }
+            None => "--".to_string(),
+        }
+    }
+
     pub fn list_songs(&self) {
         println!("🎵 Available Songs:");
         let all_songs = self.get_all_songs();
         for (i, song) in all_songs.iter().enumerate() {
+            let duration_str = Self::format_duration(song.duration_ms);
             println!(
-                "{}: {} ({} tracks, default tempo: {} BPM)",
+                "{}: {} ({} tracks, default tempo: {} BPM, duration: {})",
                 i,
                 song.name,
                 song.tracks.len(),
-                song.default_tempo
+                song.default_tempo,
+                duration_str
             );
         }
     }
+
+    /// List only dynamic songs
+    pub fn list_dynamic_songs(&self) {
+        let static_count = self.get_static_song_count();
+        let dynamic_count = self.get_dynamic_song_count();
+
+        if dynamic_count == 0 {
+            println!("📭 No dynamic songs loaded");
+            return;
+        }
+
+        println!("🎶 Dynamic Songs ({} total):", dynamic_count);
+        for (i, song) in self.dynamic_songs.iter().enumerate() {
+            let actual_index = static_count + i;
+            let duration_str = Self::format_duration(song.duration_ms);
+            println!(
+                "  {}: {} ({} tracks, default tempo: {} BPM, duration: {})",
+                actual_index,
+                song.name,
+                song.tracks.len(),
+                song.default_tempo,
+                duration_str
+            );
+        }
+    }
+
+    /// List only static songs
+    pub fn list_static_songs(&self) {
+        let static_count = self.get_static_song_count();
+
+        if static_count == 0 {
+            println!("📭 No static songs available");
+            return;
+        }
+
+        println!("📀 Static Songs ({} total):", static_count);
+        for (i, song) in self.static_songs.iter().enumerate() {
+            let duration_str = Self::format_duration(song.duration_ms);
+            println!(
+                "  {}: {} ({} tracks, default tempo: {} BPM, duration: {})",
+                i,
+                song.name,
+                song.tracks.len(),
+                song.default_tempo,
+                duration_str
+            );
+        }
+    }
+
     pub fn play_song(
         &mut self,
         song_index: usize,
@@ -791,9 +873,16 @@ impl MidiPlayer {
         let tempo = tempo_bpm.unwrap_or(selected_song.default_tempo);
         // --- Map user-facing track indices to dense indices ---
         let track_indices = Self::get_dense_indices_for_song(selected_song, tracks.as_deref());
-        let user_indices: Vec<_> = track_indices.iter().filter_map(|dense| {
-            selected_song.tracks.iter().find(|t| selected_song.track_index_map.get(&t.index) == Some(dense)).map(|t| t.index)
-        }).collect();
+        let user_indices: Vec<_> = track_indices
+            .iter()
+            .filter_map(|dense| {
+                selected_song
+                    .tracks
+                    .iter()
+                    .find(|t| selected_song.track_index_map.get(&t.index) == Some(dense))
+                    .map(|t| t.index)
+            })
+            .collect();
         println!(
             "\n▶️  Playing {} - user tracks: {:?} (dense: {:?}) at {} BPM",
             selected_song.name, user_indices, track_indices, tempo
@@ -802,35 +891,23 @@ impl MidiPlayer {
 
         // --- AUDIO/VIDEO/URL HANDLING ---
         match selected_song.song_type {
-            SongType::Ogg | SongType::Mp3 | SongType::Mp4 => {
-                use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-                use std::thread;
+            SongType::Ogg | SongType::Mp3 | SongType::Mp4 | SongType::Webm => {
                 use std::io::{self, Read};
-                use rodio::{Decoder, OutputStream, Sink};
-
-                if let Some(bytes) = get_embedded_audio_bytes(song_index, &selected_song.song_type) {
+                use std::sync::{
+                    atomic::{AtomicBool, Ordering},
+                    Arc,
+                };
+                use std::thread;
+                let stop_flag = Arc::new(AtomicBool::new(false));
+                let stop_flag2 = stop_flag.clone();
+                let song_name = selected_song.name.clone();
+                let bytes = get_embedded_audio_bytes(song_index, &selected_song.song_type)
+                    .map(|b| b.to_vec());
+                if let Some(bytes) = bytes {
                     println!("▶️  Playing embedded audio: {}", selected_song.name);
-                    let stop_flag = Arc::new(AtomicBool::new(false));
-                    let stop_flag2 = stop_flag.clone();
-                    let audio_data = bytes.to_vec();
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    // Spawn audio playback thread
                     let handle = thread::spawn(move || {
-                        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-                        let sink = Arc::new(Sink::try_new(&stream_handle).unwrap());
-                        let cursor = std::io::Cursor::new(audio_data);
-                        let source = Decoder::new(cursor).unwrap();
-                        sink.append(source);
-                        sink.play();
-                        tx.send(Arc::clone(&sink)).unwrap(); // Send Arc<Sink> back to main thread
-                        // Wait until sink is stopped or stop_flag is set
-                        while !stop_flag2.load(Ordering::Relaxed) && !sink.empty() {
-                            std::thread::sleep(std::time::Duration::from_millis(50));
-                        }
-                        // Drop sink to stop playback
+                        let _ = play_media_file(&song_name, None, Some(&bytes), stop_flag2);
                     });
-                    // Receive sink so we can drop it to stop playback
-                    let sink = rx.recv().unwrap();
                     // Listen for user input
                     println!("🎮 Controls: 'n' = next song, 'q' = quit to menu");
                     loop {
@@ -844,24 +921,14 @@ impl MidiPlayer {
                                 }
                             }
                         }
-                        if sink.empty() {
+                        if stop_flag.load(Ordering::Relaxed) {
                             break;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(50));
                     }
-                    // Wait for thread to finish
                     let _ = handle.join();
-                    if sink.empty() {
-                        println!("✅ Done!");
-                        return Ok(true);
-                    } else {
-                        if stop_flag.load(Ordering::Relaxed) {
-                            if let Some('q') = std::io::stdin().bytes().next().and_then(|r| r.ok().map(|b| b as char)) {
-                                return Ok(false);
-                            }
-                        }
-                        return Ok(true);
-                    }
+                    println!("✅ Done!");
+                    return Ok(true);
                 } else {
                     println!("❌ No embedded audio data found for this song.");
                     return Ok(false);
@@ -869,7 +936,10 @@ impl MidiPlayer {
             }
             SongType::YouTube => {
                 println!("🌐 YouTube/URL song: {}", selected_song.name);
-                println!("Open this URL in your browser: {}", selected_song.source.url().unwrap_or("(no url)".to_string()));
+                println!(
+                    "Open this URL in your browser: {}",
+                    selected_song.source.url().unwrap_or("(no url)".to_string())
+                );
                 return Ok(true);
             }
             _ => {}
@@ -902,11 +972,8 @@ impl MidiPlayer {
                     SongType::Midi | SongType::MusicXml => {
                         // Map user-facing indices to dense indices
                         let dense_indices = Self::get_dense_indices_for_song(song, None);
-                        let events = self.get_events_for_song(
-                            i,
-                            &dense_indices,
-                            song.default_tempo,
-                        );
+                        let events =
+                            self.get_events_for_song(i, &dense_indices, song.default_tempo);
                         if !events.is_empty() {
                             let continue_playing =
                                 self.play_events_with_tempo_control(&events, song.default_tempo)?;
@@ -950,11 +1017,8 @@ impl MidiPlayer {
             match song.song_type {
                 SongType::Midi | SongType::MusicXml => {
                     let dense_indices = Self::get_dense_indices_for_song(song, None);
-                    let events = self.get_events_for_song(
-                        song_index,
-                        &dense_indices,
-                        song.default_tempo,
-                    );
+                    let events =
+                        self.get_events_for_song(song_index, &dense_indices, song.default_tempo);
                     if !events.is_empty() {
                         let continue_playing =
                             self.play_events_with_tempo_control(&events, song.default_tempo)?;
@@ -1036,12 +1100,15 @@ impl MidiPlayer {
                             1 => 0, // Sequential - always start from beginning
                             2 => {
                                 // Random positions
-                                if self.config.scan_random_start && song_duration > scan_duration * 1000 {
+                                if self.config.scan_random_start
+                                    && song_duration > scan_duration * 1000
+                                {
                                     use std::collections::hash_map::DefaultHasher;
                                     use std::hash::{Hash, Hasher};
                                     let mut hasher = DefaultHasher::new();
                                     song_index.hash(&mut hasher);
-                                    (hasher.finish() as u32) % (song_duration - scan_duration * 1000)
+                                    (hasher.finish() as u32)
+                                        % (song_duration - scan_duration * 1000)
                                 } else {
                                     0
                                 }
@@ -1521,7 +1588,11 @@ impl MidiPlayer {
     /// Add a single MIDI file to the dynamic song list
     pub fn add_song_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Box<dyn Error>> {
         let path = path.as_ref();
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         if ext == "mid" {
             let midi_data = fs::read(path)?;
             let song_info = self.parse_midi_file_from_data(&midi_data, path)?;
@@ -1538,9 +1609,11 @@ impl MidiPlayer {
             match musicxml::read_score_partwise(&path.to_string_lossy()) {
                 Ok(score) => {
                     // Use the same extraction logic as embed_musicxml.rs
-                    let xml_song = e_midi_shared::embed_musicxml::extract_musicxml_songs(path.parent().unwrap_or_else(|| std::path::Path::new(".")))
-                        .into_iter()
-                        .find(|s| s.filename == path.file_name().unwrap().to_string_lossy());
+                    let xml_song = e_midi_shared::embed_musicxml::extract_musicxml_songs(
+                        path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+                    )
+                    .into_iter()
+                    .find(|s| s.filename == path.file_name().unwrap().to_string_lossy());
                     if let Some(xml) = xml_song {
                         let song_info = xml_song_to_song_info(&xml);
                         self.dynamic_songs.push(song_info);
@@ -1577,7 +1650,11 @@ impl MidiPlayer {
         for entry in fs::read_dir(dir_path)? {
             let entry = entry?;
             let path = entry.path();
-            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
             if ext == "mid" || ext == "xml" || ext == "musicxml" {
                 match self.add_song_from_file(&path) {
                     Ok(()) => added_count += 1,
@@ -1596,50 +1673,6 @@ impl MidiPlayer {
         self.dynamic_songs.clear();
         self.dynamic_midi_data.clear();
         println!("🧹 Cleared {} dynamic songs", count);
-    }
-
-    /// List only dynamic songs
-    pub fn list_dynamic_songs(&self) {
-        let static_count = self.get_static_song_count();
-        let dynamic_count = self.get_dynamic_song_count();
-
-        if dynamic_count == 0 {
-            println!("📭 No dynamic songs loaded");
-            return;
-        }
-
-        println!("🎶 Dynamic Songs ({} total):", dynamic_count);
-        for (i, song) in self.dynamic_songs.iter().enumerate() {
-            let actual_index = static_count + i;
-            println!(
-                "  {}: {} ({} tracks, default tempo: {} BPM)",
-                actual_index,
-                song.name,
-                song.tracks.len(),
-                song.default_tempo
-            );
-        }
-    }
-
-    /// List only static songs
-    pub fn list_static_songs(&self) {
-        let static_count = self.get_static_song_count();
-
-        if static_count == 0 {
-            println!("📭 No static songs available");
-            return;
-        }
-
-        println!("📀 Static Songs ({} total):", static_count);
-        for (i, song) in self.static_songs.iter().enumerate() {
-            println!(
-                "  {}: {} ({} tracks, default tempo: {} BPM)",
-                i,
-                song.name,
-                song.tracks.len(),
-                song.default_tempo
-            );
-        }
     }
 
     /// Parse a MIDI file and create a SongInfo structure
@@ -1744,17 +1777,34 @@ impl MidiPlayer {
             track_index_map.insert(track_info.index, dense_idx);
         }
 
+        // Compute duration_ms as the max end time of all notes
+        let mut duration_ms = 0u32;
+        for track in smf.tracks.iter() {
+            let mut current_time = 0u32;
+            for event in track.iter() {
+                current_time += event.delta.as_int();
+                if let midly::TrackEventKind::Midi { message, .. } = &event.kind {
+                    if let midly::MidiMessage::NoteOn { .. } = message {
+                        // NoteOn event, check if this is the latest event
+                        if current_time > duration_ms {
+                            duration_ms = current_time;
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(SongInfo {
             filename: path.to_string_lossy().to_string(),
             name: song_name,
             tracks,
             default_tempo,
             ticks_per_q: Some(ticks_per_q),
-            song_type: SongType::Midi,
             source: SongSource::None,
+            song_type: SongType::Midi,
             track_index_map,
+            duration_ms: Some(duration_ms),
         })
-        
     }
 
     /// Get events for any song (static or dynamic) by index
@@ -1899,7 +1949,8 @@ impl MidiPlayer {
                     for track in song.tracks.iter() {
                         if let Some(program) = track.program {
                             // Find the first note in events for this track and use its channel
-                            let note_channel = events.iter()
+                            let note_channel = events
+                                .iter()
                                 .map(|n| n.chan)
                                 .next()
                                 .or_else(|| track.channels.get(0).copied())
@@ -2104,14 +2155,16 @@ impl MidiPlayer {
                 let target_time_ms = e.t as u64;
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 if elapsed_ms < target_time_ms {
-                    std::thread::sleep(std::time::Duration::from_millis(target_time_ms - elapsed_ms));
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        target_time_ms - elapsed_ms,
+                    ));
                     continue;
                 }
                 let msg = match e.kind {
                     Kind::On => [0x90 | (e.chan & 0x0F), e.p, e.v],
                     Kind::Off => [0x80 | (e.chan & 0x0F), e.p, 0],
                 };
-               
+
                 self.send_midi_command(MidiCommand::SendMessage(msg.to_vec()))?;
                 idx += 1;
             }
@@ -2269,7 +2322,7 @@ impl MidiPlayer {
                                 println!("⚠️  Invalid tempo format. Use 't' then enter BPM, or 't<BPM>' (e.g. 't120')");
                             }
                         } else if let Ok(new_tempo) = input.parse::<u32>() {
-                          tempo_clone
+                            tempo_clone
                                 .store((new_tempo as f32 * 1000.0) as u32, Ordering::Relaxed);
                             println!("⏱️   Tempo changed to {} BPM", new_tempo);
                         }
@@ -2505,14 +2558,18 @@ impl MidiPlayer {
                         Ok(()) => total_added += 1,
                         Err(e) => println!("❌ Failed to load {}: {}", cleaned_path, e),
                     }
-                } else if path.extension().and_then(|s| s.to_str()) == Some("xml") || path.extension().and_then(|s| s.to_str()) == Some("musicxml") {
+                } else if path.extension().and_then(|s| s.to_str()) == Some("xml")
+                    || path.extension().and_then(|s| s.to_str()) == Some("musicxml")
+                {
                     // Try to parse as MusicXML
                     match musicxml::read_score_partwise(&path.to_string_lossy()) {
                         Ok(score) => {
                             // Use the same extraction logic as embed_musicxml.rs
-                            let xml_song = e_midi_shared::embed_musicxml::extract_musicxml_songs(path.parent().unwrap_or_else(|| std::path::Path::new(".")))
-                                .into_iter()
-                                .find(|s| s.filename == path.file_name().unwrap().to_string_lossy());
+                            let xml_song = e_midi_shared::embed_musicxml::extract_musicxml_songs(
+                                path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+                            )
+                            .into_iter()
+                            .find(|s| s.filename == path.file_name().unwrap().to_string_lossy());
                             if let Some(xml) = xml_song {
                                 let song_info = xml_song_to_song_info(&xml);
                                 self.dynamic_songs.push(song_info);
@@ -2683,7 +2740,11 @@ impl MidiPlayer {
         let track_indices = if let Some(ref tracks) = tracks {
             if tracks.contains(&0) {
                 // 0 means all tracks
-                selected_song.tracks.iter().map(|t| t.index).collect::<Vec<_>>()
+                selected_song
+                    .tracks
+                    .iter()
+                    .map(|t| t.index)
+                    .collect::<Vec<_>>()
             } else {
                 // Map user-supplied indices through track_index_map
                 tracks
@@ -2693,7 +2754,11 @@ impl MidiPlayer {
             }
         } else {
             // Default to all tracks
-            selected_song.tracks.iter().map(|t| t.index).collect::<Vec<_>>()
+            selected_song
+                .tracks
+                .iter()
+                .map(|t| t.index)
+                .collect::<Vec<_>>()
         };
         // Get events for the song
         let events = self.get_events_for_song(idx, &track_indices, tempo);
@@ -2864,8 +2929,7 @@ impl MidiPlayer {
         Ok(true)
     }
 
-
- /// Static method to play events in a background thread and update tick (for resume-aware playback)
+    /// Static method to play events in a background thread and update tick (for resume-aware playback)
     fn play_events_in_background_with_tick(
         events: Vec<Note>,
         tempo_bpm: u32,
@@ -2992,12 +3056,15 @@ impl MidiPlayer {
 
     /// Play embedded audio data (OGG/MP3/MP4) from static bytes
     pub fn play_embedded_audio(data: &'static [u8]) -> Result<(), Box<dyn std::error::Error>> {
-        let (_stream, stream_handle) = OutputStream::try_default()?;
-        let sink = Sink::try_new(&stream_handle)?;
-        let cursor = Cursor::new(data);
-        let source = Decoder::new(cursor)?;
-        sink.append(source);
-        sink.sleep_until_end();
+        #[cfg(feature = "uses_rodio")]
+        {
+            let (_stream, stream_handle) = OutputStream::try_default()?;
+            let sink = Sink::try_new(&stream_handle)?;
+            let cursor = Cursor::new(data);
+            let source = Decoder::new(cursor)?;
+            sink.append(source);
+            sink.sleep_until_end();
+        }
         Ok(())
     }
 }
@@ -3010,19 +3077,32 @@ pub fn xml_song_to_song_info(xml: &XmlSongInfo) -> SongInfo {
         track_index_map.insert(t.index, t.index);
     }
     // Convert XmlTrackInfo to TrackInfo
-    let tracks: Vec<TrackInfo> = xml.tracks.iter().map(|t| TrackInfo {
-        index: t.index,
-        program: Some(t.program),
-        guess: Some(t.name.clone()),
-        channels: if t.channels.is_empty() { vec![0] } else { t.channels.clone() },
-        note_count: t.note_count,
-        pitch_range: t.pitch_range,
-        sample_notes: t.sample_notes.clone(),
-    }).collect();
+    let tracks: Vec<TrackInfo> = xml
+        .tracks
+        .iter()
+        .map(|t| TrackInfo {
+            index: t.index,
+            program: Some(t.program),
+            guess: Some(t.name.clone()),
+            channels: if t.channels.is_empty() {
+                vec![0]
+            } else {
+                t.channels.clone()
+            },
+            note_count: t.note_count,
+            pitch_range: t.pitch_range,
+            sample_notes: t.sample_notes.clone(),
+        })
+        .collect();
     // Flatten all notes into a Vec<Note>, with track field set and correct channel
     let mut notes = Vec::new();
     for (track_idx, timeline) in xml.track_notes.iter().enumerate() {
-        let chan = xml.tracks.get(track_idx).and_then(|t| t.channels.get(0)).copied().unwrap_or(0);
+        let chan = xml
+            .tracks
+            .get(track_idx)
+            .and_then(|t| t.channels.get(0))
+            .copied()
+            .unwrap_or(0);
         for &(start, dur, _voice, midi_pitch, velocity) in timeline {
             notes.push(Note {
                 start_ms: start, // You may want to convert ticks to ms elsewhere
@@ -3043,5 +3123,6 @@ pub fn xml_song_to_song_info(xml: &XmlSongInfo) -> SongInfo {
         source: SongSource::None,
         song_type: SongType::MusicXml,
         track_index_map,
+        duration_ms: None, // Add this field, or compute from notes if needed
     }
 }

@@ -3,7 +3,6 @@ use std::error::Error;
 
 use crate::MidiPlayer;
 // use reqwest::blocking as reqwest_blocking;
-use std::io::Read;
 
 #[derive(Parser)]
 #[command(name = env!("CARGO_PKG_NAME"))]
@@ -136,8 +135,8 @@ pub fn run_cli() -> Result<(), Box<dyn Error>> {
         //             eprintln!("❌ Failed to download {}: {}", path_str, e);
         //         }
         //     }
-        // } else 
-        
+        // } else
+
         if path_str.ends_with(".mid") || path_str.ends_with(".midi") {
             if let Err(e) = player.add_song_from_file(path) {
                 eprintln!("❌ Failed to add {}: {}", path.display(), e);

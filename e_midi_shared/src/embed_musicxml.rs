@@ -4,14 +4,14 @@
 // use crate::model::{SongInfo, TrackInfo, Note, SongType};
 // use crate::common::{SongInfo, TrackInfo, Note, SongType};
 // If not present, create a types.rs file in src/ with the required definitions and add:
+use crate::types::{XmlSongInfo, XmlTrackInfo};
 use musicxml::read_score_partwise;
-use quick_xml::Reader;
 use quick_xml::events::Event;
+use quick_xml::Reader;
 use std::collections::HashMap;
 use std::fs;
 use std::io::BufReader;
 use std::path::Path;
-use crate::types::{XmlTrackInfo, XmlSongInfo};
 
 pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
     let mut songs = Vec::new();
@@ -23,9 +23,15 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
             if path.extension().and_then(|s| s.to_str()) == Some("xml") {
                 // Use quick-xml to extract part id -> (name, program) mapping
                 let part_map = extract_part_list_mapping(&path);
-                eprintln!("[DEBUG] MusicXML part mapping for {:?}:", path.file_name().unwrap());
+                eprintln!(
+                    "[DEBUG] MusicXML part mapping for {:?}:",
+                    path.file_name().unwrap()
+                );
                 for (pid, (name, prog)) in &part_map {
-                    eprintln!("  part_id: {}  name: '{}'  midi_program: {}", pid, name, prog);
+                    eprintln!(
+                        "  part_id: {}  name: '{}'  midi_program: {}",
+                        pid, name, prog
+                    );
                 }
                 let score = match read_score_partwise(path.to_str().unwrap()) {
                     Ok(s) => s,
@@ -33,17 +39,21 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
                 };
                 let mut track_infos = Vec::new();
                 let mut all_track_notes = Vec::new();
-                let mut default_tempo = 120u32;
+                let default_tempo = 120u32;
                 let mut part_idx = 0;
                 let mut ticks_per_q = 1u32;
                 for part in &score.content.part {
                     // Get part id from attributes
                     let part_id = part.attributes.id.0.clone();
                     // Look up instrument name/program from mapping
-                    let (instrument_name, program) = part_map.get(&part_id)
+                    let (instrument_name, program) = part_map
+                        .get(&part_id)
                         .map(|(n, p)| (n.clone(), *p))
                         .unwrap_or_else(|| (format!("Part{}", part_idx), 0));
-                    eprintln!("[DEBUG] Assigning part_id '{}' -> '{}' (program {})", part_id, instrument_name, program);
+                    eprintln!(
+                        "[DEBUG] Assigning part_id '{}' -> '{}' (program {})",
+                        part_id, instrument_name, program
+                    );
                     let mut note_count = 0;
                     let mut min_pitch = 127u8;
                     let mut max_pitch = 0u8;
@@ -55,7 +65,8 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
                     for elem in &part.content {
                         if let musicxml::elements::PartElement::Measure(measure) = elem {
                             for m_elem in &measure.content {
-                                if let musicxml::elements::MeasureElement::Attributes(attr) = m_elem {
+                                if let musicxml::elements::MeasureElement::Attributes(attr) = m_elem
+                                {
                                     if let Some(div) = &attr.content.divisions {
                                         divisions = div.content.0 as u32;
                                     }
@@ -73,22 +84,47 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
                             let mut local_time = current_time;
                             for m_elem in &measure.content {
                                 if let musicxml::elements::MeasureElement::Note(note) = m_elem {
-                                    if let musicxml::elements::NoteType::Normal(ref normal) = note.content.info {
-                                        if let musicxml::elements::AudibleType::Pitch(ref pitch) = normal.audible {
+                                    if let musicxml::elements::NoteType::Normal(ref normal) =
+                                        note.content.info
+                                    {
+                                        if let musicxml::elements::AudibleType::Pitch(ref pitch) =
+                                            normal.audible
+                                        {
                                             let step_val = step_to_midi(&pitch.content.step);
                                             let octave_val = pitch.content.octave.content.0 as u8;
-                                            let alter_val = pitch.content.alter.as_ref().map(|a| a.content.0 as i8).unwrap_or(0);
-                                            let midi_pitch = (step_val as i8 + alter_val + ((octave_val as i8 + 1) * 12)) as u8;
+                                            let alter_val = pitch
+                                                .content
+                                                .alter
+                                                .as_ref()
+                                                .map(|a| a.content.0 as i8)
+                                                .unwrap_or(0);
+                                            let midi_pitch = (step_val as i8
+                                                + alter_val
+                                                + ((octave_val as i8 + 1) * 12))
+                                                as u8;
                                             let duration = normal.duration.content.0 as u32;
                                             let velocity = 64u8;
                                             // Use the MusicXML voice field if present, otherwise default to 1
-                                            let voice = note.content.voice.as_ref()
-                                                .and_then(|v| v.content.to_string().parse::<u8>().ok())
+                                            let voice = note
+                                                .content
+                                                .voice
+                                                .as_ref()
+                                                .and_then(|v| {
+                                                    v.content.to_string().parse::<u8>().ok()
+                                                })
                                                 .unwrap_or(1u8);
-                                            timeline.push((local_time, duration, voice, midi_pitch, velocity));
-                                            if midi_pitch < min_pitch { min_pitch = midi_pitch; }
-                                            if midi_pitch > max_pitch { max_pitch = midi_pitch; }
-                                            if sample_notes.len() < 5 { sample_notes.push(midi_pitch); }
+                                            timeline.push((
+                                                local_time, duration, voice, midi_pitch, velocity,
+                                            ));
+                                            if midi_pitch < min_pitch {
+                                                min_pitch = midi_pitch;
+                                            }
+                                            if midi_pitch > max_pitch {
+                                                max_pitch = midi_pitch;
+                                            }
+                                            if sample_notes.len() < 5 {
+                                                sample_notes.push(midi_pitch);
+                                            }
                                             note_count += 1;
                                             local_time += duration;
                                         }
@@ -296,39 +332,39 @@ pub fn extract_part_list_mapping(xml_path: &Path) -> HashMap<String, (String, u8
     let mut current_virtual_name = None;
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) => {
-                match e.name().as_ref() {
-                    b"part-list" => in_part_list = true,
-                    b"score-part" if in_part_list => {
-                        in_score_part = true;
-                        current_id = e.attributes()
-                            .filter_map(|a| a.ok())
-                            .find(|a| a.key.as_ref() == b"id")
-                            .and_then(|a| std::str::from_utf8(&a.value).ok().map(|s| s.to_string()));
-                        current_name = None;
-                        current_virtual_name = None;
-                    }
-                    b"part-name" if in_score_part => {
-                        if let Ok(Event::Text(t)) = reader.read_event_into(&mut buf) {
-                            let name = t.unescape().unwrap_or_default();
-                            current_name = Some(name.trim().to_string());
-                        }
-                    }
-                    b"virtual-name" if in_score_part => {
-                        if let Ok(Event::Text(t)) = reader.read_event_into(&mut buf) {
-                            let vname = t.unescape().unwrap_or_default();
-                            current_virtual_name = Some(vname.trim().to_string());
-                        }
-                    }
-                    _ => {}
+            Ok(Event::Start(ref e)) => match e.name().as_ref() {
+                b"part-list" => in_part_list = true,
+                b"score-part" if in_part_list => {
+                    in_score_part = true;
+                    current_id = e
+                        .attributes()
+                        .filter_map(|a| a.ok())
+                        .find(|a| a.key.as_ref() == b"id")
+                        .and_then(|a| std::str::from_utf8(&a.value).ok().map(|s| s.to_string()));
+                    current_name = None;
+                    current_virtual_name = None;
                 }
-            }
+                b"part-name" if in_score_part => {
+                    if let Ok(Event::Text(t)) = reader.read_event_into(&mut buf) {
+                        let name = t.unescape().unwrap_or_default();
+                        current_name = Some(name.trim().to_string());
+                    }
+                }
+                b"virtual-name" if in_score_part => {
+                    if let Ok(Event::Text(t)) = reader.read_event_into(&mut buf) {
+                        let vname = t.unescape().unwrap_or_default();
+                        current_virtual_name = Some(vname.trim().to_string());
+                    }
+                }
+                _ => {}
+            },
             Ok(Event::End(ref e)) => {
                 match e.name().as_ref() {
                     b"score-part" if in_score_part => {
                         if let Some(id) = current_id.take() {
                             // Prefer part-name if it maps to a known program, else try virtual-name
-                            let mut name = current_name.take().unwrap_or_else(|| "Unknown".to_string());
+                            let mut name =
+                                current_name.take().unwrap_or_else(|| "Unknown".to_string());
                             let mut program = instrument_name_to_program(&name);
                             if program == 0 && name.to_ascii_lowercase() != "acoustic grand piano" {
                                 if let Some(vname) = current_virtual_name.take() {
@@ -359,4 +395,3 @@ pub fn extract_part_list_mapping(xml_path: &Path) -> HashMap<String, (String, u8
 // Types are available in the crate root; no import needed.
 
 // All MusicXML logic moved to musicxml.rs
-

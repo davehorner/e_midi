@@ -1,6 +1,6 @@
 [package]
 name = "e_midi"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 authors = ["David Horner"]
 description = "An interactive/CLI/library MIDI player with advanced playback options, looping, and scan modes."
@@ -11,6 +11,11 @@ repository = "https://github.com/davehorner/e_midi/"
 keywords = ["midi", "music", "audio", "player", "interactive"]
 categories = ["multimedia::audio", "command-line-utilities"]
 rust-version = "1.70"
+
+[features]
+default = []
+uses_gstreamer = ["gstreamer", "gstreamer-player", "glib"]
+uses_rodio = ["rodio"]
 
 [dependencies]
 ansi_term = "0.12.1"
@@ -27,13 +32,16 @@ serde_json = "1.0"
 crossbeam-queue = "0.3.12"
 dashmap = "6.1.0"
 musicxml = "1.1.2"
-rodio = "0.17"
+rodio = { version = "0.20.1", optional = true }
 rand = "0.8"
 #reqwest = { version = "0.12.20", features = ["blocking"] }
 #quick-xml = "0.37.5"
-e_midi_shared = "0.1.1"
-#e_midi_shared = { path = "../e_midi_shared" }
+e_midi_shared = { version = "0.1.2", features = [] }
 log = "0.4.27"
+gstreamer = { version = "0.22.8", optional = true }
+gstreamer-player = { version = "0.22.6", optional = true }
+glib = { version = "0.20.12", optional = true }
+which = "8.0.0"
 
 [target.'cfg(windows)'.dependencies]
 e_grid = "0.1.2"
@@ -42,8 +50,9 @@ winapi = "0.3.9"
 [build-dependencies]
 midly = "0.5.3"
 rimd = "0.0.1"
-e_midi_shared = "0.1.1"
-#e_midi_shared = { path = "../e_midi_shared" }
+e_midi_shared = { version = "0.1.2", features = [] }
+# e_midi_shared = { path = "../e_midi_shared" }
+which = "8.0.0"
 
 [[bin]]
 name = "e_midi_demo01"

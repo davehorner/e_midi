@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.1...e_midi_shared-v0.1.2) - 2025-06-26
+
+### Added
+
+- Add duration calculation and audio file support
+
 ## [0.1.1](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.0...e_midi_shared-v0.1.1) - 2025-06-26
 
 ### Added
