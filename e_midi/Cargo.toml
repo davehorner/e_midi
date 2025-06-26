@@ -1,6 +1,6 @@
 [package]
 name = "e_midi"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["David Horner"]
 description = "An interactive/CLI/library MIDI player with advanced playback options, looping, and scan modes."
@@ -27,10 +27,12 @@ serde_json = "1.0"
 crossbeam-queue = "0.3.12"
 dashmap = "6.1.0"
 musicxml = "1.1.2"
+rodio = "0.17"
+rand = "0.8"
 #reqwest = { version = "0.12.20", features = ["blocking"] }
 #quick-xml = "0.37.5"
-e_midi_shared = "0.1.0"
-#e_midi_shared = { path = "../e_midi_shared" }
+#e_midi_shared = "0.1.1"
+e_midi_shared = { path = "../e_midi_shared" }
 log = "0.4.27"
 
 [target.'cfg(windows)'.dependencies]
@@ -40,8 +42,8 @@ winapi = "0.3.9"
 [build-dependencies]
 midly = "0.5.3"
 rimd = "0.0.1"
-e_midi_shared = "0.1.0"
-#e_midi_shared = { path = "../e_midi_shared" }
+#e_midi_shared = "0.1.1"
+e_midi_shared = { path = "../e_midi_shared" }
 
 [[bin]]
 name = "e_midi_demo01"

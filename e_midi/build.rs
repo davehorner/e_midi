@@ -28,6 +28,7 @@ fn main() {
     let dest_path = Path::new(&out_dir).join("embedded_midi.rs");
     let mut out = File::create(&dest_path).unwrap();
     
+    // Only import SongData to avoid duplicate type imports in generated code
     writeln!(out, "use e_midi_shared::types::SongData;\n").unwrap();
     for song in &midi_songs {
         // Write track notes arrays as &[Note]
@@ -89,7 +90,7 @@ fn main() {
         }
         track_index_map.push_str("m }");
         song_info_entries.push(format!(
-            "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![{}], default_tempo: {}, ticks_per_q: Some({}), song_type: SongType::Midi, track_index_map: {} }}",
+            "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![{}], default_tempo: {}, ticks_per_q: Some({}), song_type: SongType::Midi, source: SongSource::None, track_index_map: {} }}",
             song.filename, song.name, tracks, song.default_tempo, song.ticks_per_q, track_index_map));
         song_idx += 1;
     }
@@ -137,9 +138,81 @@ fn main() {
         }
         track_index_map.push_str("m}");
         song_info_entries.push(format!(
-            "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![{}], default_tempo: {}, ticks_per_q: Some({}), song_type: SongType::MusicXml, track_index_map: {} }}",
+            "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![{}], default_tempo: {}, ticks_per_q: Some({}), song_type: SongType::MusicXml, source: SongSource::None, track_index_map: {} }}",
             song.filename, song.name, tracks, song.default_tempo, song.ticks_per_q, track_index_map));
         song_idx += 1;
+    }
+    // --- Add support for OGG, MP3, MP4, and .url (YouTube) files ---
+    use std::fs;
+    let midi_dir = Path::new("midi");
+    let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    for entry in fs::read_dir(midi_dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path().canonicalize().unwrap();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let fname = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        match ext.as_str() {
+            "ogg" => {
+                let var_name = format!("SONG_{}_OGG_DATA", song_idx);
+                let rel_path = path.strip_prefix(&crate_root).unwrap_or(&path);
+                let rel_path_str = rel_path.to_str().unwrap().replace("\\", "/");
+                writeln!(out, "static {}: &[u8] = include_bytes!(\"{}\");", var_name, rel_path_str).unwrap();
+                song_info_entries.push(format!(
+                    "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![], default_tempo: 0, ticks_per_q: None, song_type: SongType::Ogg, source: SongSource::EmbeddedOgg({}), track_index_map: std::collections::HashMap::new() }}",
+                    fname, fname, var_name
+                ));
+                song_idx += 1;
+            }
+            "mp3" => {
+                let var_name = format!("SONG_{}_MP3_DATA", song_idx);
+                let rel_path = path.strip_prefix(&crate_root).unwrap_or(&path);
+                let rel_path_str = rel_path.to_str().unwrap().replace("\\", "/");
+                writeln!(out, "static {}: &[u8] = include_bytes!(\"{}\");", var_name, rel_path_str).unwrap();
+                song_info_entries.push(format!(
+                    "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![], default_tempo: 0, ticks_per_q: None, song_type: SongType::Mp3, source: SongSource::EmbeddedMp3({}), track_index_map: std::collections::HashMap::new() }}",
+                    fname, fname, var_name
+                ));
+                song_idx += 1;
+            }
+            "mp4" => {
+                let var_name = format!("SONG_{}_MP4_DATA", song_idx);
+                let rel_path = path.strip_prefix(&crate_root).unwrap_or(&path);
+                let rel_path_str = rel_path.to_str().unwrap().replace("\\", "/");
+                writeln!(out, "static {}: &[u8] = include_bytes!(\"{}\");", var_name, rel_path_str).unwrap();
+                song_info_entries.push(format!(
+                    "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![], default_tempo: 0, ticks_per_q: None, song_type: SongType::Mp4, source: SongSource::EmbeddedMp4({}), track_index_map: std::collections::HashMap::new() }}",
+                    fname, fname, var_name
+                ));
+                song_idx += 1;
+            }
+            "url" => {
+                // Parse the .url file for a YouTube link or ID
+                if let Ok(url_text) = fs::read_to_string(&path) {
+                    let video_id = url_text.trim()
+                        .rsplit('/')
+                        .next()
+                        .and_then(|s| s.split('?').next())
+                        .unwrap_or("");
+                    song_info_entries.push(format!(
+                        "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![], default_tempo: 0, ticks_per_q: None, song_type: SongType::YouTube, source: SongSource::YouTube {{ video_id: \"{}\", start: None, end: None }}, track_index_map: std::collections::HashMap::new() }}",
+                        fname, fname, video_id
+                    ));
+                    song_idx += 1;
+                }
+            }
+            "webm" => {
+                let var_name = format!("SONG_{}_WEBM_DATA", song_idx);
+                let rel_path = path.strip_prefix(&crate_root).unwrap_or(&path);
+                let rel_path_str = rel_path.to_str().unwrap().replace("\\", "/");
+                writeln!(out, "static {}: &[u8] = include_bytes!(\"{}\");", var_name, rel_path_str).unwrap();
+                song_info_entries.push(format!(
+                    "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![], default_tempo: 0, ticks_per_q: None, song_type: SongType::Webm, source: SongSource::EmbeddedWebm({}), track_index_map: std::collections::HashMap::new() }}",
+                    fname, fname, var_name
+                ));
+                song_idx += 1;
+            }
+            _ => {}
+        }
     }
     // Write SongData static array
     // REMOVE struct SongData generation (it's defined in lib.rs)
@@ -159,6 +232,10 @@ fn main() {
 
     // Write get_events_for_song_tracks (real implementation)
     writeln!(out, "pub fn get_events_for_song_tracks(song_index: usize, track_indices: &[usize], tempo_bpm: u32) -> Vec<crate::Note> {{").unwrap();
+    writeln!(out, "    if song_index >= SONG_DATA.len() {{").unwrap();
+    writeln!(out, "        eprintln!(\"[e_midi] Invalid song_index {{}} in get_events_for_song_tracks (max is {{}})\", song_index, SONG_DATA.len().saturating_sub(1));").unwrap();
+    writeln!(out, "        return Vec::new();").unwrap();
+    writeln!(out, "    }}").unwrap();
     writeln!(out, "    let song_data = &SONG_DATA[song_index];").unwrap();
     writeln!(out, "    let ticks_per_q = song_data.ticks_per_q;").unwrap();
     writeln!(out, "    let mut events = Vec::new();").unwrap();
@@ -182,6 +259,27 @@ fn main() {
     writeln!(out, "    events.sort_by_key(|n| n.start_ms);").unwrap();
     writeln!(out, "    events").unwrap();
     writeln!(out, "}}\n").unwrap();
+
+    // Write play_embedded_audio_bytes function for OGG/MP3/MP4
+    writeln!(out, "/// Returns the embedded audio bytes for a static song index (OGG/MP3/MP4)\npub fn get_embedded_audio_bytes(song_index: usize, _song_type: &SongType) -> Option<&'static [u8]> {{
+    match song_index {{
+").unwrap();
+    let mut audio_idx = 0;
+    for entry in &song_info_entries {
+        // Only match OGG/MP3/MP4/WebM
+        if entry.contains("SongType::Ogg") {
+            writeln!(out, "        {} => Some(SONG_{}_OGG_DATA),", audio_idx, audio_idx).unwrap();
+        } else if entry.contains("SongType::Mp3") {
+            writeln!(out, "        {} => Some(SONG_{}_MP3_DATA),", audio_idx, audio_idx).unwrap();
+        } else if entry.contains("SongType::Mp4") {
+            writeln!(out, "        {} => Some(SONG_{}_MP4_DATA),", audio_idx, audio_idx).unwrap();
+        } else if entry.contains("SongType::Webm") {
+            writeln!(out, "        {} => Some(SONG_{}_WEBM_DATA),", audio_idx, audio_idx).unwrap();
+        }
+        audio_idx += 1;
+    }
+    writeln!(out, "        _ => None,").unwrap();
+    writeln!(out, "    }}\n}}\n").unwrap();
 
     use std::fs::OpenOptions;
     use std::io::Write;

@@ -9,13 +9,17 @@ use std::sync::{
 use std::thread::{self, sleep, JoinHandle};
 use std::time::{Duration, Instant};
 
+use e_midi_shared::types::SongSource;
 use midir::MidiOutput;
 use midly::{MidiMessage, Smf, TrackEventKind};
 use log::trace;
 // Import the IPC module (now fixed)
 pub mod ipc;
 pub use ipc::{AppId, Event as IpcEvent, IpcServiceManager};
-
+use rodio::OutputStream;
+use rodio::Sink;
+use rodio::Decoder;
+use std::io::Cursor;
 pub use e_midi_shared::types::{SongInfo, TrackInfo, Note, SongType, XmlTrackInfo, XmlSongInfo};
 // Global shutdown flag for graceful Ctrl+C handling
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
@@ -787,7 +791,6 @@ impl MidiPlayer {
         let tempo = tempo_bpm.unwrap_or(selected_song.default_tempo);
         // --- Map user-facing track indices to dense indices ---
         let track_indices = Self::get_dense_indices_for_song(selected_song, tracks.as_deref());
-        // For debug: print user-facing and dense indices
         let user_indices: Vec<_> = track_indices.iter().filter_map(|dense| {
             selected_song.tracks.iter().find(|t| selected_song.track_index_map.get(&t.index) == Some(dense)).map(|t| t.index)
         }).collect();
@@ -797,12 +800,86 @@ impl MidiPlayer {
         );
         println!("🎮 Controls: 't' = change tempo (or type BPM directly), 'n' = next song, 'q' = quit to menu\n");
 
+        // --- AUDIO/VIDEO/URL HANDLING ---
+        match selected_song.song_type {
+            SongType::Ogg | SongType::Mp3 | SongType::Mp4 => {
+                use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+                use std::thread;
+                use std::io::{self, Read};
+                use rodio::{Decoder, OutputStream, Sink};
+
+                if let Some(bytes) = get_embedded_audio_bytes(song_index, &selected_song.song_type) {
+                    println!("▶️  Playing embedded audio: {}", selected_song.name);
+                    let stop_flag = Arc::new(AtomicBool::new(false));
+                    let stop_flag2 = stop_flag.clone();
+                    let audio_data = bytes.to_vec();
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    // Spawn audio playback thread
+                    let handle = thread::spawn(move || {
+                        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+                        let sink = Arc::new(Sink::try_new(&stream_handle).unwrap());
+                        let cursor = std::io::Cursor::new(audio_data);
+                        let source = Decoder::new(cursor).unwrap();
+                        sink.append(source);
+                        sink.play();
+                        tx.send(Arc::clone(&sink)).unwrap(); // Send Arc<Sink> back to main thread
+                        // Wait until sink is stopped or stop_flag is set
+                        while !stop_flag2.load(Ordering::Relaxed) && !sink.empty() {
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                        // Drop sink to stop playback
+                    });
+                    // Receive sink so we can drop it to stop playback
+                    let sink = rx.recv().unwrap();
+                    // Listen for user input
+                    println!("🎮 Controls: 'n' = next song, 'q' = quit to menu");
+                    loop {
+                        let mut buf = [0u8; 1];
+                        if let Ok(n) = io::stdin().read(&mut buf) {
+                            if n > 0 {
+                                let c = buf[0] as char;
+                                if c == 'n' || c == 'q' {
+                                    stop_flag.store(true, Ordering::Relaxed);
+                                    break;
+                                }
+                            }
+                        }
+                        if sink.empty() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    // Wait for thread to finish
+                    let _ = handle.join();
+                    if sink.empty() {
+                        println!("✅ Done!");
+                        return Ok(true);
+                    } else {
+                        if stop_flag.load(Ordering::Relaxed) {
+                            if let Some('q') = std::io::stdin().bytes().next().and_then(|r| r.ok().map(|b| b as char)) {
+                                return Ok(false);
+                            }
+                        }
+                        return Ok(true);
+                    }
+                } else {
+                    println!("❌ No embedded audio data found for this song.");
+                    return Ok(false);
+                }
+            }
+            SongType::YouTube => {
+                println!("🌐 YouTube/URL song: {}", selected_song.name);
+                println!("Open this URL in your browser: {}", selected_song.source.url().unwrap_or("(no url)".to_string()));
+                return Ok(true);
+            }
+            _ => {}
+        }
+        // --- MIDI/MusicXML (default) ---
         let events = self.get_events_for_song(song_index, &track_indices, tempo);
         if events.is_empty() {
             println!("⚠️  No events to play! Check track selection.");
             return Ok(false);
         }
-
         let continue_playing = self.play_events_with_tempo_control(&events, tempo)?;
         println!("✅ Done!");
         Ok(continue_playing)
@@ -821,18 +898,26 @@ impl MidiPlayer {
                     songs_count,
                     song.name
                 );
-                // Map user-facing indices to dense indices
-                let dense_indices = Self::get_dense_indices_for_song(song, None);
-                let events = self.get_events_for_song(
-                    i,
-                    &dense_indices,
-                    song.default_tempo,
-                );
-                if !events.is_empty() {
-                    let continue_playing =
-                        self.play_events_with_tempo_control(&events, song.default_tempo)?;
-                    if !continue_playing {
-                        return Ok(());
+                match song.song_type {
+                    SongType::Midi | SongType::MusicXml => {
+                        // Map user-facing indices to dense indices
+                        let dense_indices = Self::get_dense_indices_for_song(song, None);
+                        let events = self.get_events_for_song(
+                            i,
+                            &dense_indices,
+                            song.default_tempo,
+                        );
+                        if !events.is_empty() {
+                            let continue_playing =
+                                self.play_events_with_tempo_control(&events, song.default_tempo)?;
+                            if !continue_playing {
+                                return Ok(());
+                            }
+                        }
+                    }
+                    _ => {
+                        // For OGG/MP3/MP4/YouTube, just play the song (no event logic)
+                        self.play_song(i, None, None)?;
                     }
                 }
                 if self.config.delay_between_songs_ms > 0 {
@@ -854,39 +939,32 @@ impl MidiPlayer {
     }
 
     pub fn play_random_song(&mut self) -> Result<(), Box<dyn Error>> {
-        use std::collections::HashSet;
-        let mut played_songs = HashSet::new();
-        loop {
-            if played_songs.len() >= self.get_total_song_count() {
-                if !self.config.loop_playlist {
-                    break;
-                }
-                played_songs.clear();
-                println!("🔄 All songs played, restarting random playlist...");
-            }
-            let mut song_index;
-            loop {
-                song_index = (std::ptr::addr_of!(self.static_songs) as usize) % self.get_total_song_count();
-                if !played_songs.contains(&song_index) {
-                    break;
-                }
-            }
-            played_songs.insert(song_index);
+        use rand::seq::SliceRandom;
+        let mut indices: Vec<usize> = (0..self.get_total_song_count()).collect();
+        let mut rng = rand::thread_rng();
+        indices.shuffle(&mut rng);
+        for &song_index in &indices {
             self.current_song_index = Some(song_index);
             let song = self.get_song(song_index).ok_or("Invalid song index")?;
             println!("\n🎲 Random song {}: {}", song_index, song.name);
-            // Map user-facing indices to dense indices
-            let dense_indices = Self::get_dense_indices_for_song(song, None);
-            let events = self.get_events_for_song(
-                song_index,
-                &dense_indices,
-                song.default_tempo,
-            );
-            if !events.is_empty() {
-                let continue_playing =
-                    self.play_events_with_tempo_control(&events, song.default_tempo)?;
-                if !continue_playing {
-                    break;
+            match song.song_type {
+                SongType::Midi | SongType::MusicXml => {
+                    let dense_indices = Self::get_dense_indices_for_song(song, None);
+                    let events = self.get_events_for_song(
+                        song_index,
+                        &dense_indices,
+                        song.default_tempo,
+                    );
+                    if !events.is_empty() {
+                        let continue_playing =
+                            self.play_events_with_tempo_control(&events, song.default_tempo)?;
+                        if !continue_playing {
+                            break;
+                        }
+                    }
+                }
+                _ => {
+                    self.play_song(song_index, None, None)?;
                 }
             }
             if self.config.delay_between_songs_ms > 0 {
@@ -945,130 +1023,137 @@ impl MidiPlayer {
                 }
                 self.current_song_index = Some(song_index);
                 let song = self.get_song(song_index).ok_or("Invalid song index")?;
-                // Map user-facing indices to dense indices
-                let dense_indices = Self::get_dense_indices_for_song(song, None);
-                let song_duration = calculate_song_duration_ms(&self.get_events_for_song(
-                    song_index,
-                    &dense_indices,
-                    song.default_tempo,
-                ));
-                let start_position = match scan_mode {
-                    1 => 0, // Sequential - always start from beginning
-                    2 => {
-                        // Random positions
-                        if self.config.scan_random_start && song_duration > scan_duration * 1000 {
-                            use std::collections::hash_map::DefaultHasher;
-                            use std::hash::{Hash, Hasher};
-                            let mut hasher = DefaultHasher::new();
-                            song_index.hash(&mut hasher);
-                            (hasher.finish() as u32) % (song_duration - scan_duration * 1000)
-                        } else {
-                            0
-                        }
-                    }
-                    3 => {
-                        // Progressive scan
-                        let pos = positions[song_index];
-                        if pos + scan_duration * 1000 >= song_duration {
-                            positions[song_index] = 0; // Reset to start if we've reached the end
-                            0
-                        } else {
-                            positions[song_index] += scan_duration * 1000; // Advance by full scan duration
-                            pos
-                        }
-                    }
-                    _ => 0,
-                };
-                println!(
-                    "\n▶️  Scanning: {} ({}/{})",
-                    song.name,
-                    song_index + 1,
-                    songs_count
-                );
-                let events = self.get_events_for_song(
-                    song_index,
-                    &dense_indices,
-                    song.default_tempo,
-                );
-                if !events.is_empty() {
-                    // Calculate full song duration first
-                    let full_duration_ms = calculate_song_duration_ms(&events);
-                    let full_duration_str = format_duration(full_duration_ms);
-
-                    let end_time_ms = std::cmp::min(scan_duration * 1000, full_duration_ms);
-                    let percentage = if full_duration_ms > 0 {
-                        (start_position as f32 / full_duration_ms as f32 * 100.0) as u32
-                    } else {
-                        0
-                    };
-
-                    match scan_mode {
-                        2 => {
-                            // Random scan
-                            println!(
-                                "🎲 Random start: {}% ({}) of {} total",
-                                percentage,
-                                format_duration(start_position),
-                                full_duration_str
-                            );
-                        }
-                        3 => {
-                            // Progressive scan
-                            let end_pos = std::cmp::min(
-                                start_position + scan_duration * 1000,
-                                full_duration_ms,
-                            );
-                            println!(
-                                "🎯 Progressive scan: {}% ({} to {}) of {} total",
-                                percentage,
-                                format_duration(start_position),
-                                format_duration(end_pos),
-                                full_duration_str
-                            );
-                        }
-                        _ => {
-                            // Sequential scan
-                            println!(
-                                "📏 Sequential scan: 0% (0s to {}) of {} total",
-                                format_duration(end_time_ms),
-                                full_duration_str
-                            );
-                        }
-                    }
-
-                    // Filter events to start from the calculated position
-                    let filtered_events: Vec<Note> = if start_position > 0 {
-                        events
-                            .iter()
-                            .filter(|note| note.start_ms >= start_position)
-                            .map(|note| Note {
-                                start_ms: note.start_ms - start_position,
-                                dur_ms: note.dur_ms,
-                                chan: note.chan,
-                                pitch: note.pitch,
-                                vel: note.vel,
-                                track: note.track,
-                            })
-                            .collect()
-                    } else {
-                        events
-                    };
-                    if interactive {
-                        self.play_events_with_tempo_control_and_scan_limit(
-                            &filtered_events,
+                match song.song_type {
+                    SongType::Midi | SongType::MusicXml => {
+                        // Map user-facing indices to dense indices
+                        let dense_indices = Self::get_dense_indices_for_song(song, None);
+                        let song_duration = calculate_song_duration_ms(&self.get_events_for_song(
+                            song_index,
+                            &dense_indices,
                             song.default_tempo,
-                            scan_duration * 1000,
-                        )?;
-                    } else {
-                        // For non-interactive scan mode, just play the events with simple timing
-                        self.play_events_simple(
-                            &filtered_events,
+                        ));
+                        let start_position = match scan_mode {
+                            1 => 0, // Sequential - always start from beginning
+                            2 => {
+                                // Random positions
+                                if self.config.scan_random_start && song_duration > scan_duration * 1000 {
+                                    use std::collections::hash_map::DefaultHasher;
+                                    use std::hash::{Hash, Hasher};
+                                    let mut hasher = DefaultHasher::new();
+                                    song_index.hash(&mut hasher);
+                                    (hasher.finish() as u32) % (song_duration - scan_duration * 1000)
+                                } else {
+                                    0
+                                }
+                            }
+                            3 => {
+                                // Progressive scan
+                                let pos = positions[song_index];
+                                if pos + scan_duration * 1000 >= song_duration {
+                                    positions[song_index] = 0; // Reset to start if we've reached the end
+                                    0
+                                } else {
+                                    positions[song_index] += scan_duration * 1000; // Advance by full scan duration
+                                    pos
+                                }
+                            }
+                            _ => 0,
+                        };
+                        println!(
+                            "\n▶️  Scanning: {} ({}/{})",
+                            song.name,
+                            song_index + 1,
+                            songs_count
+                        );
+                        let events = self.get_events_for_song(
+                            song_index,
+                            &dense_indices,
                             song.default_tempo,
-                            scan_duration * 1000,
-                        )?;
+                        );
+                        if !events.is_empty() {
+                            // Calculate full song duration first
+                            let full_duration_ms = calculate_song_duration_ms(&events);
+                            let full_duration_str = format_duration(full_duration_ms);
+
+                            let end_time_ms = std::cmp::min(scan_duration * 1000, full_duration_ms);
+                            let percentage = if full_duration_ms > 0 {
+                                (start_position as f32 / full_duration_ms as f32 * 100.0) as u32
+                            } else {
+                                0
+                            };
+
+                            match scan_mode {
+                                2 => {
+                                    // Random scan
+                                    println!(
+                                        "🎲 Random start: {}% ({}) of {} total",
+                                        percentage,
+                                        format_duration(start_position),
+                                        full_duration_str
+                                    );
+                                }
+                                3 => {
+                                    // Progressive scan
+                                    let end_pos = std::cmp::min(
+                                        start_position + scan_duration * 1000,
+                                        full_duration_ms,
+                                    );
+                                    println!(
+                                        "🎯 Progressive scan: {}% ({} to {}) of {} total",
+                                        percentage,
+                                        format_duration(start_position),
+                                        format_duration(end_pos),
+                                        full_duration_str
+                                    );
+                                }
+                                _ => {
+                                    // Sequential scan
+                                    println!(
+                                        "📏 Sequential scan: 0% (0s to {}) of {} total",
+                                        format_duration(end_time_ms),
+                                        full_duration_str
+                                    );
+                                }
+                            }
+
+                            // Filter events to start from the calculated position
+                            let filtered_events: Vec<Note> = if start_position > 0 {
+                                events
+                                    .iter()
+                                    .filter(|note| note.start_ms >= start_position)
+                                    .map(|note| Note {
+                                        start_ms: note.start_ms,
+                                        dur_ms: note.dur_ms,
+                                        chan: note.chan,
+                                        pitch: note.pitch,
+                                        vel: note.vel,
+                                        track: note.track,
+                                    })
+                                    .collect()
+                            } else {
+                                events
+                            };
+                            if interactive {
+                                self.play_events_with_tempo_control_and_scan_limit(
+                                    &filtered_events,
+                                    song.default_tempo,
+                                    scan_duration * 1000,
+                                )?;
+                            } else {
+                                // For non-interactive scan mode, just play the events with simple timing
+                                self.play_events_simple(
+                                    &filtered_events,
+                                    song.default_tempo,
+                                    scan_duration * 1000,
+                                )?;
+                            }
+                        }
+                    }
+                    _ => {
+                        // For OGG/MP3/MP4/YouTube, just play the song (no event logic)
+                        self.play_song(song_index, None, None)?;
                     }
                 }
-
                 if self.config.delay_between_songs_ms > 0 {
                     sleep(Duration::from_millis(
                         self.config.delay_between_songs_ms as u64,
@@ -1303,95 +1388,103 @@ impl MidiPlayer {
         let selected_song = self.get_song(song_index).ok_or("Invalid song index")?;
         println!("\n🎹 Selected: {}", selected_song.name);
 
-        if self.config.loop_individual_songs {
-            println!("🔄 Looping enabled for this song. Press 'q' + Enter to stop.");
-        }
-
-        // Track selection
-        println!("\n🎹 Available Tracks:");
-        for track in &selected_song.tracks {
-            println!(
-                "{}: {} - notes: {} - channels: {:?} - pitch: {}–{} - sample: {:?}",
-                track.index,
-                track.guess.as_ref().unwrap_or(&"-".to_string()),
-                track.note_count,
-                track.channels,
-                track.pitch_range.0,
-                track.pitch_range.1,
-                track.sample_notes
-            );
-        }
-
-        print!(
-            "\nEnter track numbers to play (comma separated, 0 for all tracks, or ENTER for all): "
-        );
-        stdout().flush()?;
-        let mut track_input = String::new();
-        stdin().read_line(&mut track_input)?;
-
-        // Check for quit command
-        if track_input.trim() == "q" {
-            return Ok(());
-        }
-
-        let mut tracks: Vec<usize> = if track_input.trim().is_empty() {
-            selected_song.tracks.iter().map(|t| t.index).collect()
-        } else {
-            track_input
-                .trim()
-                .split(',')
-                .filter_map(|s| s.trim().parse::<usize>().ok())
-                .collect()
-        };
-
-        if tracks.contains(&0) {
-            tracks = selected_song.tracks.iter().map(|t| t.index).collect();
-            println!("🎵 Playing all tracks!");
-        } else if tracks.is_empty() {
-            println!("🎵 No valid tracks specified, playing all tracks!");
-            tracks = selected_song.tracks.iter().map(|t| t.index).collect();
-        } else {
-            let mut valid_tracks = Vec::new();
-            for user_track in &tracks {
-                if selected_song.tracks.iter().any(|t| t.index == *user_track) {
-                    valid_tracks.push(*user_track);
-                } else {
-                    println!("⚠️  Track {} not found, skipping.", user_track);
+        // Only show track/tempo selection for MIDI and MusicXML
+        match selected_song.song_type {
+            SongType::Midi | SongType::MusicXml => {
+                if self.config.loop_individual_songs {
+                    println!("🔄 Looping enabled for this song. Press 'q' + Enter to stop.");
                 }
-            }
-            tracks = valid_tracks;
+                // Track selection
+                println!("\n🎹 Available Tracks:");
+                for track in &selected_song.tracks {
+                    println!(
+                        "{}: {} - notes: {} - channels: {:?} - pitch: {}–{} - sample: {:?}",
+                        track.index,
+                        track.guess.as_ref().unwrap_or(&"-".to_string()),
+                        track.note_count,
+                        track.channels,
+                        track.pitch_range.0,
+                        track.pitch_range.1,
+                        track.sample_notes
+                    );
+                }
+                print!(
+                    "\nEnter track numbers to play (comma separated, 0 for all tracks, or ENTER for all): "
+                );
+                stdout().flush()?;
+                let mut track_input = String::new();
+                stdin().read_line(&mut track_input)?;
 
-            if tracks.is_empty() {
-                println!("🎵 No valid tracks found, playing all tracks!");
-                tracks = selected_song.tracks.iter().map(|t| t.index).collect();
+                // Check for quit command
+                if track_input.trim() == "q" {
+                    return Ok(());
+                }
+
+                let mut tracks: Vec<usize> = if track_input.trim().is_empty() {
+                    selected_song.tracks.iter().map(|t| t.index).collect()
+                } else {
+                    track_input
+                        .trim()
+                        .split(',')
+                        .filter_map(|s| s.trim().parse::<usize>().ok())
+                        .collect()
+                };
+
+                if tracks.contains(&0) {
+                    tracks = selected_song.tracks.iter().map(|t| t.index).collect();
+                    println!("🎵 Playing all tracks!");
+                } else if tracks.is_empty() {
+                    println!("🎵 No valid tracks specified, playing all tracks!");
+                    tracks = selected_song.tracks.iter().map(|t| t.index).collect();
+                } else {
+                    let mut valid_tracks = Vec::new();
+                    for user_track in &tracks {
+                        if selected_song.tracks.iter().any(|t| t.index == *user_track) {
+                            valid_tracks.push(*user_track);
+                        } else {
+                            println!("⚠️  Track {} not found, skipping.", user_track);
+                        }
+                    }
+                    tracks = valid_tracks;
+
+                    if tracks.is_empty() {
+                        println!("🎵 No valid tracks found, playing all tracks!");
+                        tracks = selected_song.tracks.iter().map(|t| t.index).collect();
+                    }
+                }
+
+                // Tempo selection
+                print!(
+                    "\nEnter tempo in BPM (default {} or ENTER for default): ",
+                    selected_song.default_tempo
+                );
+                stdout().flush()?;
+                let mut tempo_input = String::new();
+                stdin().read_line(&mut tempo_input)?;
+
+                // Check for quit command
+                if tempo_input.trim() == "q" {
+                    return Ok(());
+                }
+
+                let tempo_bpm = if tempo_input.trim().is_empty() {
+                    selected_song.default_tempo
+                } else {
+                    tempo_input
+                        .trim()
+                        .parse()
+                        .unwrap_or(selected_song.default_tempo)
+                };
+
+                self.play_song(song_index, Some(tracks), Some(tempo_bpm))?;
+                Ok(())
+            }
+            _ => {
+                // For OGG/MP3/MP4/YouTube, just play the song (no track/tempo selection)
+                self.play_song(song_index, None, None)?;
+                Ok(())
             }
         }
-
-        // Tempo selection
-        print!(
-            "\nEnter tempo in BPM (default {} or ENTER for default): ",
-            selected_song.default_tempo
-        );
-        stdout().flush()?;
-        let mut tempo_input = String::new();
-        stdin().read_line(&mut tempo_input)?;
-
-        // Check for quit command
-        if tempo_input.trim() == "q" {
-            return Ok(());
-        }
-
-        let tempo_bpm = if tempo_input.trim().is_empty() {
-            selected_song.default_tempo
-        } else {
-            tempo_input
-                .trim()
-                .parse()
-                .unwrap_or(selected_song.default_tempo)
-        };
-
-        self.play_song(song_index, Some(tracks), Some(tempo_bpm))?;
-        Ok(())
     }
     fn scan_mode_interactive(&mut self) -> Result<(), Box<dyn Error>> {
         print!("\n⏱️  Enter scan duration in seconds (default 30): ");
@@ -1658,6 +1751,7 @@ impl MidiPlayer {
             default_tempo,
             ticks_per_q: Some(ticks_per_q),
             song_type: SongType::Midi,
+            source: SongSource::None,
             track_index_map,
         })
         
@@ -2895,6 +2989,17 @@ impl MidiPlayer {
             (0..song.tracks.len()).collect()
         }
     }
+
+    /// Play embedded audio data (OGG/MP3/MP4) from static bytes
+    pub fn play_embedded_audio(data: &'static [u8]) -> Result<(), Box<dyn std::error::Error>> {
+        let (_stream, stream_handle) = OutputStream::try_default()?;
+        let sink = Sink::try_new(&stream_handle)?;
+        let cursor = Cursor::new(data);
+        let source = Decoder::new(cursor)?;
+        sink.append(source);
+        sink.sleep_until_end();
+        Ok(())
+    }
 }
 
 /// Converts an XmlSongInfo (from MusicXML) into a SongInfo and its notes, for playback.
@@ -2935,6 +3040,7 @@ pub fn xml_song_to_song_info(xml: &XmlSongInfo) -> SongInfo {
         tracks,
         default_tempo: xml.default_tempo,
         ticks_per_q: Some(xml.ticks_per_q),
+        source: SongSource::None,
         song_type: SongType::MusicXml,
         track_index_map,
     }

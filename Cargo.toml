@@ -1,3 +1,3 @@
 [workspace]
-members = ["e_midi", "e_midi_shared"]
+members = ["e_midi_shared","e_midi"]
 resolver = "2"
