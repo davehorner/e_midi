@@ -1,6 +1,6 @@
 [package]
 name = "e_midi"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 authors = ["David Horner"]
 description = "An interactive/CLI/library MIDI player with advanced playback options, looping, and scan modes."
@@ -53,7 +53,3 @@ rimd = "0.0.1"
 e_midi_shared = { version = "0.1.2", features = [] }
 # e_midi_shared = { path = "../e_midi_shared" }
 which = "8.0.0"
-
-[[bin]]
-name = "e_midi_demo01"
-path = "examples/e_midi_demo01.rs"

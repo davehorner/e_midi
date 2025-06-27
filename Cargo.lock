@@ -654,8 +654,6 @@ dependencies = [
 [[package]]
 name = "e_grid"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b3cea2c1f1c067dfb9c8ea4d48391d8e3b86e9a1158992bf31e6e55e38ea815"
 dependencies = [
  "crossbeam-queue",
  "crossterm 0.29.0",
@@ -675,7 +673,7 @@ dependencies = [
 
 [[package]]
 name = "e_midi"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "ansi_term",
  "clap",
@@ -705,15 +703,19 @@ dependencies = [
 
 [[package]]
 name = "e_midi_shared"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "glib 0.20.12",
  "gstreamer",
  "gstreamer-player",
+ "iceoryx2",
  "midly",
  "musicxml",
+ "once_cell",
  "quick-xml",
  "rodio",
+ "serde",
+ "serde_json",
  "which 8.0.0",
 ]
 

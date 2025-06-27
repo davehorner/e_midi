@@ -59,7 +59,9 @@ now includes .ogg and .mp3 embedding/playing via rodio.  mp4/webm embed but do n
 
 A feature-rich, interactive MIDI player written in Rust with advanced playback options, looping capabilities, and scan modes.
 
-## Installation
+> - **e_midi_demo02**: Persistent IPC event listener demo. Launches e_midi to play song 0 with IPC enabled, then displays all incoming MIDI note events in real time. Remains running and will display events from any e_midi instance with IPC enabled. Useful for debugging and monitoring event flow. Source: `examples/e_midi_demo02.rs`.
+
+> - **e_midi_ipc_player**: Designed to be controlled entirely via inter-process communication. Tt listens for IPC midi events and plays the notes with a changing random voice.  run `e_midi_demo02`, then start as many `e_midi_ipc_player` as you desire; they will all play the same song.
 
 ### Prerequisites
 - Rust (latest stable version)
@@ -456,6 +458,9 @@ For details and a full index of available sounds, see [README.MIDI.md](midi/READ
 
 
 ## Changelog
+
+### v0.1.7
+- Added `e_midi_demo02` and `e_midi_ipc_player` binaries for IPC event monitoring and playback
 
 ### v0.1.0 (Current)
 - Initial release with comprehensive MIDI playback capabilities
