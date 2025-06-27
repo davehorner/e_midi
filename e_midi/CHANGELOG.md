@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.6...e_midi-v0.1.7) - 2025-06-27
+
+### Added
+
+- *(ipc)* add full zero-copy MIDI event IPC system using iceoryx2
+
 ## [0.1.6](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.5...e_midi-v0.1.6) - 2025-06-26
 
 ### Added

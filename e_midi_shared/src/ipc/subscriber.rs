@@ -26,38 +26,42 @@ pub struct EventSubscriber {
 impl EventSubscriber {
     /// Create a new event subscriber for events from the specified app
     pub fn new(source_app: AppId, subscriber_app: AppId) -> IpcResult<Self> {
-        let service_name = format!("e_ecosystem_events_{:?}", source_app).to_lowercase();
+        let service_name = "e_midi_events".to_string();
+        println!("[IPC SUBSCRIBER DEBUG] Using service name: {} (source_app: {:?}, subscriber_app: {:?})", service_name, source_app, subscriber_app);
 
         // Create node (suppress debug output)
         let node = NodeBuilder::new()
             .create::<Service>()
-            .map_err(|_| IpcError::NodeCreation(format!("Node creation failed")))?;
+            .map_err(|e| {
+                eprintln!("[IPC SUBSCRIBER ERROR] Node creation failed: {:?}", e);
+                IpcError::NodeCreation(format!("Node creation failed"))
+            })?;
 
-        // Try to open existing service first, if that fails, create it
+        // Try to open existing service first, if that fails, return error (do not create)
         let service = match node
             .service_builder(
                 &ServiceName::new(&service_name)
-                    .map_err(|_| IpcError::ServiceCreation(format!("Invalid service name")))?,
+                    .map_err(|e| {
+                        eprintln!("[IPC SUBSCRIBER ERROR] Invalid service name: {:?}", e);
+                        IpcError::ServiceCreation(format!("Invalid service name"))
+                    })?,
             )
             .publish_subscribe::<IpcPayload>()
             .open()
         {
             Ok(service) => service,
-            Err(_) => {
-                // If opening fails, try to create the service
-                node.service_builder(
-                    &ServiceName::new(&service_name)
-                        .map_err(|_| IpcError::ServiceCreation(format!("Invalid service name")))?,
-                )
-                .publish_subscribe::<IpcPayload>()
-                .open_or_create()
-                .map_err(|_| IpcError::ServiceCreation(format!("Failed to create service")))?
+            Err(e) => {
+                eprintln!("[IPC SUBSCRIBER ERROR] Failed to open service (does publisher exist?): {:?}", e);
+                return Err(IpcError::ServiceCreation(format!("Failed to open service: {:?}", e)));
             }
         };
         let subscriber = service
             .subscriber_builder()
             .create()
-            .map_err(|_| IpcError::SubscriberCreation(format!("Failed to create subscriber")))?;
+            .map_err(|e| {
+                eprintln!("[IPC SUBSCRIBER ERROR] Failed to create subscriber: {:?}", e);
+                IpcError::SubscriberCreation(format!("Failed to create subscriber"))
+            })?;
 
         Ok(Self {
             subscriber,
@@ -75,11 +79,14 @@ impl EventSubscriber {
         }
 
         let mut events = Vec::new(); // Check for new samples
+        let mut sample_count = 0;
         while let Some(sample) = self
             .subscriber
             .receive()
             .map_err(|_| IpcError::ReceiveError(format!("Failed to receive")))?
         {
+            sample_count += 1;
+            println!("[IPC SUBSCRIBER DEBUG] Received sample #{}", sample_count);
             // Deserialize the received data
             let json_data = sample.payload();
 
@@ -90,6 +97,7 @@ impl EventSubscriber {
                 // If single event fails, try as batch
                 events.extend(batch);
             } else {
+                eprintln!("[IPC SUBSCRIBER ERROR] Failed to deserialize event data: {:?}", json_data);
                 return Err(IpcError::DeserializationError(
                     "Failed to deserialize event data".to_string(),
                 ));
