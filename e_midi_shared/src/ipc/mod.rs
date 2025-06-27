@@ -15,7 +15,7 @@ pub use events::*;
 pub use publisher::*;
 pub use service::*;
 pub use subscriber::*;
-pub use types::*;
+pub use crate::ipc::types::*;
 pub use music_sync_subscriber::*;
 pub use music_sync_publisher::*;
 
@@ -39,3 +39,9 @@ impl fmt::Display for IpcError {
 }
 
 impl Error for IpcError {}
+
+use once_cell::sync::OnceCell;
+use crate::ipc::events::IpcEventSender;
+
+pub static IPC_EVENT_SENDER: OnceCell<IpcEventSender> = OnceCell::new();
+pub const EMIDI_EVENTS_SERVICE: &str = "e_midi_events";
