@@ -43,6 +43,10 @@ pub struct Cli {
     /// Scan directories and add all MIDI files to the dynamic playlist
     #[arg(long = "scan-directory")]
     pub scan_directories: Vec<std::path::PathBuf>,
+
+    /// Enable IPC event publishing for playback
+    #[arg(long)]
+    pub ipc: bool,
 }
 
 #[derive(Subcommand)]
@@ -101,8 +105,8 @@ pub fn run_cli() -> Result<(), Box<dyn Error>> {
         config.scan_segment_duration_ms = cli.scan_duration * 1000;
         config.scan_random_start = cli.scan_random_start;
     }
-
-    // Process global options to add songs/directories to dynamic playlist
+    player.init_ipc_publisher()?; // Initialize IPC publisher
+                                  // Process global options to add songs/directories to dynamic playlist
     for path in &cli.add_songs {
         let path_str = path.to_string_lossy();
         // if path_str.starts_with("http://") || path_str.starts_with("https://") {
@@ -185,14 +189,23 @@ pub fn run_cli() -> Result<(), Box<dyn Error>> {
             let result: Result<(), Box<dyn Error>> = if loop_individual {
                 // For looping, we need to handle it differently
                 loop {
-                    let continue_playing = player.play_song(song_index, tracks.clone(), tempo)?;
-                    if !continue_playing {
-                        break;
+                    if cli.ipc {
+                        player.play_song_with_ipc(song_index)?;
+                    } else {
+                        let continue_playing =
+                            player.play_song(song_index, tracks.clone(), tempo)?;
+                        if !continue_playing {
+                            break;
+                        }
                     }
                 }
                 Ok(())
             } else {
-                player.play_song(song_index, tracks, tempo)?;
+                if cli.ipc {
+                    player.play_song_with_ipc(song_index)?;
+                } else {
+                    player.play_song(song_index, tracks, tempo)?;
+                }
                 Ok(())
             };
 
@@ -200,7 +213,14 @@ pub fn run_cli() -> Result<(), Box<dyn Error>> {
         }
 
         Some(Commands::PlayAll) => {
-            player.play_all_songs()?;
+            if cli.ipc {
+                // Play all songs with IPC event publishing
+                for i in 0..player.get_total_song_count() {
+                    player.play_song_with_ipc(i)?;
+                }
+            } else {
+                player.play_all_songs()?;
+            }
         }
 
         Some(Commands::PlayRandom) => {

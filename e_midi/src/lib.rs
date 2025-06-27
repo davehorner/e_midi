@@ -15,9 +15,8 @@ use log::trace;
 use midir::MidiOutput;
 use midly::{MidiMessage, Smf, TrackEventKind};
 // Import the IPC module (now fixed)
-pub mod ipc;
+pub use e_midi_shared::ipc;
 pub use e_midi_shared::types::{Note, SongInfo, SongType, TrackInfo, XmlSongInfo, XmlTrackInfo};
-pub use ipc::{AppId, Event as IpcEvent, IpcServiceManager};
 #[cfg(feature = "uses_rodio")]
 use rodio::Decoder;
 #[cfg(feature = "uses_rodio")]
@@ -133,7 +132,7 @@ pub struct MidiPlayer {
     pub dynamic_songs: Vec<SongInfo>,
     pub dynamic_midi_data: Vec<Vec<u8>>,
     pub config: LoopConfig,
-    pub ipc_manager: Option<IpcServiceManager>,
+    pub ipc_manager: Option<ipc::IpcServiceManager>,
     playback_stop_flag: Arc<AtomicBool>,
     is_playing: Arc<AtomicBool>,
     current_song_index: Option<usize>,
@@ -265,7 +264,8 @@ impl MidiPlayer {
             });
             return Err("No events to play! Check track selection.".into());
         } // Use the non-blocking playback method to avoid blocking the TUI
-        self.play_song_with_ipc_nonblocking(song_index)?;
+        let handle = self.play_song_with_ipc_nonblocking(song_index)?;
+        let _ = handle.join();
 
         Ok(())
     }
@@ -274,7 +274,7 @@ impl MidiPlayer {
     pub fn play_song_with_ipc_nonblocking(
         &mut self,
         song_index: usize,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<JoinHandle<()>, Box<dyn Error>> {
         if song_index >= self.get_total_song_count() {
             return Err("Invalid song index".into());
         }
@@ -303,7 +303,8 @@ impl MidiPlayer {
                     .as_millis() as u64,
             });
             return Err("No events to play! Check track selection.".into());
-        } // Reset the stop flag before starting new playback
+        }
+        // Reset the stop flag before starting new playback
         self.reset_stop_flag();
         self.is_playing.store(true, Ordering::Relaxed);
 
@@ -313,8 +314,8 @@ impl MidiPlayer {
         let playing_state = Arc::clone(&self.is_playing);
         let events_clone = events.clone();
 
-        // Spawn playback in a background thread
-        thread::spawn(move || {
+        // Spawn playback in a background thread and return the handle
+        let handle = thread::spawn(move || {
             if let Err(e) = Self::play_events_in_background(
                 events_clone,
                 tempo,
@@ -326,7 +327,7 @@ impl MidiPlayer {
             }
         });
 
-        Ok(())
+        Ok(handle)
     }
 
     fn publish_midi_event(&self, event: crate::ipc::Event) {
@@ -337,9 +338,24 @@ impl MidiPlayer {
     /// Initialize IPC publisher for event-driven communication
     pub fn init_ipc_publisher(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.ipc_manager.is_none() {
-            match IpcServiceManager::new(AppId::EMidi) {
+            match ipc::IpcServiceManager::new(ipc::AppId::EMidi) {
                 Ok(manager) => {
                     self.ipc_manager = Some(manager);
+                    // // Automatically set the global relay if available
+                    // if let Some(sender) = self
+                    //     .ipc_manager
+                    //     .as_ref()
+                    //     .and_then(|mgr| mgr.get_event_sender())
+                    // {
+                    //     // Set the global OnceCell if it hasn't been set yet
+                    //     let _ = crate::ipc::IPC_EVENT_SENDER.set(sender.clone());
+                    // }
+                    // // --- NEW: Set the global IPC_SERVICE_MANAGER for static publishing ---
+                    // #[allow(unused_imports)]
+                    // use e_midi_shared::ipc::IPC_SERVICE_MANAGER;
+                    // if let Some(ipc_manager) = self.ipc_manager.as_ref() {
+                    //     let _ = IPC_SERVICE_MANAGER.set(ipc_manager.clone());
+                    // }
                     // IPC initialized silently - no output to avoid TUI corruption
                     Ok(())
                 }
@@ -400,9 +416,20 @@ impl MidiPlayer {
         }
         timeline.sort_by_key(|e| e.t);
 
+        // --- IPC: create zero-copy publisher for MidiNoteEvent ---
+        // let mut publisher = iceoryx2::port::publisher::Publisher::<iceoryx2::service::ipc::Service, e_midi_shared::ipc_protocol::MidiNoteEvent, ()>::create("e_midi_midi_note_events").expect("Failed to create MidiNoteEvent publisher");
+        let node = iceoryx2::node::NodeBuilder::new().create::<iceoryx2::service::ipc::Service>()?;
+
+        let service = node
+            .service_builder(&iceoryx2::prelude::ServiceName::new(ipc::EMIDI_EVENTS_SERVICE)?)
+            .publish_subscribe::<e_midi_shared::ipc_protocol::MidiNoteEvent>()
+            .max_publishers(16)
+            .max_subscribers(16)
+            .open_or_create()?;
+        let publisher = service.publisher_builder().create()?;
         let start = Instant::now();
         let mut idx = 0;
-        let tempo_ms_per_beat = 60000.0 / tempo_bpm as f32;
+
         while idx < timeline.len() {
             // Check for global shutdown or local stop flag
             if should_shutdown() || stop_flag.load(Ordering::Relaxed) {
@@ -423,12 +450,23 @@ impl MidiPlayer {
                 Kind::On => vec![0x90 | event.chan, event.p, event.v],
                 Kind::Off => vec![0x80 | event.chan, event.p, 0],
             };
-            println!(
-                "[PLAYBACK SEND] idx={} chan={} pitch={} v={} track={}",
-                idx, event.chan, event.p, event.v, event.track
-            );
+            // --- IPC: publish note-level event ---
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+            let midi_note_event = e_midi_shared::ipc_protocol::MidiNoteEvent {
+                channel: event.chan,
+                pitch: event.p,
+                velocity: if let Kind::On = event.kind { event.v } else { 0 },
+                kind: match event.kind { Kind::On => 0, Kind::Off => 1 },
+                timestamp: now,
+                _reserved: [0; 4],
+            };
+            if let Err(e) = publisher.send_copy(midi_note_event) {
+                eprintln!("[IPC ERROR] Failed to send MidiNoteEvent: {:?}", e);
+            }
+
             if let Err(_) = midi_sender.send(MidiCommand::SendMessage(msg)) {
                 // MIDI thread is probably shutdown, exit gracefully
+                println!("[ERROR] Failed to send MIDI message, shutting down playback thread");
                 break;
             }
             idx += 1;
@@ -488,7 +526,15 @@ impl MidiPlayer {
             current_playing.take();
             None
         };
+        let node = iceoryx2::node::NodeBuilder::new().create::<iceoryx2::service::ipc::Service>().expect("Failed to create IPC node");
 
+        let service = node
+            .service_builder(&iceoryx2::prelude::ServiceName::new(ipc::EMIDI_EVENTS_SERVICE).expect("Failed to create service name"))
+            .publish_subscribe::<e_midi_shared::ipc_protocol::MidiNoteEvent>()
+            .max_publishers(16)
+            .max_subscribers(16)
+            .open_or_create();
+        let publisher = service.expect("service bad").publisher_builder().create().expect("Failed to create publisher");
         // Move conn into the playback thread, get it back after join
         let mut conn_opt = Some(conn);
         while let Ok(command) = receiver.recv() {
@@ -499,6 +545,24 @@ impl MidiPlayer {
                     pitch,
                     velocity,
                 } => {
+                    // --- IPC: publish note-on event ---
+                    let event = e_midi_shared::ipc::Event::MidiNoteOn {
+                        channel: channel,
+                        pitch: pitch,
+                        velocity: velocity,
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                    };
+                    println!(
+                        "[IPC DEBUG] Publishing MidiNoteOn: channel={}, pitch={}, velocity={}",
+                        channel, pitch, velocity
+                    );
+                    let res = e_midi_shared::ipc::IpcServiceManager::publish_ipc_event(event);
+                    // if let Err(e) = res {
+                    //     eprintln!("[IPC ERROR] Failed to publish MidiNoteOn: {}", e);
+                    // }
                     if let Some(conn) = conn_opt.as_mut() {
                         let msg = [0x90 | (channel & 0x0F), pitch, velocity];
                         let _ = conn.send(&msg);
@@ -619,14 +683,19 @@ impl MidiPlayer {
                             timeline
                         };
                         println!("[DEBUG][MIDI THREAD] timeline.len() = {}", timeline.len());
+                        // Move only the MIDI connection into the thread.
+                        // All IPC publisher usage must remain in the parent thread due to !Send/!Sync.
+                        let stop_flag_clone = Arc::clone(&stop_flag);
+                        let timeline_clone = timeline.clone();
+                        
                         playback_thread = Some(std::thread::spawn(move || {
                             let start = Instant::now();
                             let mut idx_tl = 0;
                             // Send all events at or before start_ms immediately (fix for short songs)
                             let mut sent_first = false;
                             let mut last_played_ms = start_ms;
-                            while idx_tl < timeline.len() && timeline[idx_tl].0 <= start_ms {
-                                let (t, on, chan, pitch, vel) = timeline[idx_tl];
+                            while idx_tl < timeline_clone.len() && timeline_clone[idx_tl].0 <= start_ms {
+                                let (t, on, chan, pitch, vel) = timeline_clone[idx_tl];
                                 let msg = if on {
                                     [0x90 | (chan & 0x0F), pitch, vel]
                                 } else {
@@ -641,16 +710,16 @@ impl MidiPlayer {
                                 idx_tl += 1;
                             }
                             // Now continue with timed playback for remaining events
-                            while idx_tl < timeline.len() {
-                                if stop_flag.load(Ordering::Relaxed) {
+                            while idx_tl < timeline_clone.len() {
+                                if stop_flag_clone.load(Ordering::Relaxed) {
                                     println!(
                                         "🎹 [MIDI THREAD] Stop flag set, breaking playback loop"
                                     );
                                     break;
                                 }
                                 let now = start.elapsed().as_millis() as u32 + start_ms;
-                                while idx_tl < timeline.len() && timeline[idx_tl].0 <= now {
-                                    let (t, on, chan, pitch, vel) = timeline[idx_tl];
+                                while idx_tl < timeline_clone.len() && timeline_clone[idx_tl].0 <= now {
+                                    let (t, on, chan, pitch, vel) = timeline_clone[idx_tl];
                                     let msg = if on {
                                         [0x90 | (chan & 0x0F), pitch, vel]
                                     } else {
@@ -669,6 +738,24 @@ impl MidiPlayer {
                             }
                             (conn, last_played_ms)
                         }));
+                        // Send IPC events for the timeline in the parent thread (non-blocking, best-effort)
+                        for (t, on, chan, pitch, vel) in &timeline {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
+                            let midi_note_event = e_midi_shared::ipc_protocol::MidiNoteEvent {
+                                channel: *chan,
+                                pitch: *pitch,
+                                velocity: if *on { *vel } else { 0 },
+                                kind: if *on { 0 } else { 1 },
+                                timestamp: now,
+                                _reserved: [0; 4],
+                            };
+                            if let Err(e) = publisher.send_copy(midi_note_event) {
+                                eprintln!("[IPC ERROR] Failed to send MidiNoteEvent: {:?}", e);
+                            }
+                        }
                     }
                 }
             }
@@ -1936,6 +2023,95 @@ impl MidiPlayer {
         events.sort_by_key(|note| note.start_ms);
         events
     }
+    /// Get or create an IPC event subscriber for a given source AppId
+    pub fn get_event_subscriber(&mut self, source_app: ipc::AppId) -> Option<&mut ipc::EventSubscriber> {
+        // Ensure IPC manager is initialized
+        if self.ipc_manager.is_none() {
+            println!("🔄 WRONG: Initializing IPC service manager for e_midi...");
+            if let Ok(manager) = ipc::IpcServiceManager::new(ipc::AppId::EMidi) {
+                self.ipc_manager = Some(manager);
+            } else {
+                return None;
+            }
+        }
+        if let Some(manager) = self.ipc_manager.as_mut() {
+            // Subscribe if not already
+            let _ = manager.subscribe_to(source_app);
+            return manager.subscriber(source_app);
+        }
+        None
+    }
+    /// Play a custom list of notes, overriding channel/voice as needed
+    pub fn play_notes(
+        &mut self,
+        notes: Vec<e_midi_shared::types::Note>,
+        tempo_bpm: Option<u32>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let tempo = tempo_bpm.unwrap_or(120);
+        // Use the same logic as play_events_in_background, but for the provided notes
+        let midi_sender = self.midi_sender.clone();
+        let stop_flag = Arc::clone(&self.playback_stop_flag);
+        let playing_state = Arc::clone(&self.is_playing);
+        thread::spawn(move || {
+            #[derive(Copy, Clone)]
+            enum Kind {
+                On,
+                Off,
+            }
+            struct Scheduled {
+                t: u32,
+                kind: Kind,
+                chan: u8,
+                p: u8,
+                v: u8,
+                track: u8,
+            }
+            let mut timeline = Vec::with_capacity(notes.len() * 2);
+            for n in &notes {
+                timeline.push(Scheduled {
+                    t: n.start_ms,
+                    kind: Kind::On,
+                    chan: n.chan,
+                    p: n.pitch,
+                    v: n.vel,
+                    track: n.track,
+                });
+                timeline.push(Scheduled {
+                    t: n.start_ms + n.dur_ms,
+                    kind: Kind::Off,
+                    chan: n.chan,
+                    p: n.pitch,
+                    v: 0,
+                    track: n.track,
+                });
+            }
+            timeline.sort_by_key(|e| e.t);
+
+            let start = std::time::Instant::now();
+            let mut idx = 0;
+            while idx < timeline.len() {
+                if stop_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                let event = &timeline[idx];
+                let target_time_ms = event.t as u64;
+                let elapsed_ms = start.elapsed().as_millis() as u64;
+                if elapsed_ms < target_time_ms {
+                    let sleep_ms = target_time_ms - elapsed_ms;
+                    std::thread::sleep(Duration::from_millis(std::cmp::min(sleep_ms, 50)));
+                    continue;
+                }
+                let msg = match event.kind {
+                    Kind::On => vec![0x90 | event.chan, event.p, event.v],
+                    Kind::Off => vec![0x80 | event.chan, event.p, 0],
+                };
+                let _ = midi_sender.send(MidiCommand::SendMessage(msg));
+                idx += 1;
+            }
+            playing_state.store(false, Ordering::Relaxed);
+        });
+        Ok(())
+    }
 
     fn play_events_with_tempo_control(
         &mut self,
@@ -2165,6 +2341,35 @@ impl MidiPlayer {
                     Kind::Off => [0x80 | (e.chan & 0x0F), e.p, 0],
                 };
 
+                // --- IPC: publish note-level event ---
+                match e.kind {
+                    Kind::On => {
+                        e_midi_shared::ipc::IpcServiceManager::publish_ipc_event(
+                            e_midi_shared::ipc::Event::MidiNoteOn {
+                                channel: e.chan,
+                                pitch: e.p,
+                                velocity: e.v,
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64,
+                            },
+                        );
+                    }
+                    Kind::Off => {
+                        e_midi_shared::ipc::IpcServiceManager::publish_ipc_event(
+                            e_midi_shared::ipc::Event::MidiNoteOff {
+                                channel: e.chan,
+                                pitch: e.p,
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64,
+                            },
+                        );
+                    }
+                }
+
                 self.send_midi_command(MidiCommand::SendMessage(msg.to_vec()))?;
                 idx += 1;
             }
@@ -2393,24 +2598,24 @@ impl MidiPlayer {
             }
         }
 
-        // Print final newline to end the progress line
-        println!();
+            // Print final newline to end the progress line
+            println!("");
 
-        // Send all notes off
-        for channel in 0..16 {
-            self.send_midi_command(MidiCommand::SendMessage(vec![0xB0 | channel, 123, 0]))?;
-        }
+            // Send all notes off
+            for channel in 0..16 {
+                self.send_midi_command(MidiCommand::SendMessage(vec![0xB0 | channel, 123, 0]))?;
+            }
 
-        // Wait for input thread to finish if it was spawned
-        if let Some(thread) = input_thread {
-            let _ = thread.join();
-        }
+            // Wait for input thread to finish if it was spawned
+            if let Some(thread) = input_thread {
+                let _ = thread.join();
+            }
 
-        println!("🏁 Playback function completed");
+            println!("🏁 Playback function completed");
 
-        // Return false if user quit, true if song finished naturally or next was pressed
-        let quit_flag = should_quit.load(Ordering::SeqCst);
-        Ok(!quit_flag)
+            // Return false if user quit, true if song finished naturally or next was pressed
+            let quit_flag = should_quit.load(Ordering::SeqCst);
+            Ok(!quit_flag)
     }
     /// Simple playback method for non-interactive scan mode - no input handling, just plays for the specified duration
     fn play_events_simple(
@@ -2480,6 +2685,11 @@ impl MidiPlayer {
                 break;
             }
 
+            // Print time progress every 100ms
+            if real_elapsed / 100 != last_print_time / 100 {
+                let progress_seconds = real_elapsed / 1000;
+                let total_seconds = max_duration_ms / 1000;
+            }
             // Print time progress every 100ms
             if real_elapsed / 100 != last_print_time / 100 {
                 let progress_seconds = real_elapsed / 1000;
@@ -2709,6 +2919,19 @@ impl MidiPlayer {
         let is_resume = position_ms.is_some()
             || (Some(idx) == self.current_song_index
                 && (self.elapsed_ms.is_some() || self.current_tick.is_some()));
+        // Always clear resume state before starting new playback
+        self.elapsed_ms = None;
+        self.current_tick = None;
+        self.current_song_index = None;
+        // Ensure MIDI device is reset before playback
+        let _ = self.send_midi_command(MidiCommand::AllNotesOff);
+        // Set channel volume (CC#7) and expression (CC#11) to max (127) for all channels before playback
+        for channel in 0..16 {
+            || {
+                (Some(idx) == self.current_song_index
+                    && (self.elapsed_ms.is_some() || self.current_tick.is_some()))
+            };
+        }
         // Always clear resume state before starting new playback
         self.elapsed_ms = None;
         self.current_tick = None;
@@ -3021,8 +3244,43 @@ impl MidiPlayer {
                 Kind::On => vec![0x90 | event.chan, event.p, event.v],
                 Kind::Off => vec![0x80 | event.chan, event.p, 0],
             };
+            // --- IPC: publish note-level event ---
+            #[allow(unused_mut)]
+            let mut publish_ipc_event = |evt: crate::ipc::Event| {
+                println!("[DIAG][bg] publish_ipc_event called");
+                if let Some(sender) = crate::ipc::IPC_EVENT_SENDER.get() {
+                    println!("[DIAG][bg] Publishing IPC event: {:?}", evt);
+                    let _ = sender.send(evt);
+                } else {
+                    println!("[DIAG][bg] IPC_EVENT_SENDER not set");
+                }
+            };
+            match event.kind {
+                Kind::On => {
+                    publish_ipc_event(crate::ipc::Event::MidiNoteOn {
+                        channel: event.chan,
+                        pitch: event.p,
+                        velocity: event.v,
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                    });
+                }
+                Kind::Off => {
+                    publish_ipc_event(crate::ipc::Event::MidiNoteOff {
+                        channel: event.chan,
+                        pitch: event.p,
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                    });
+                }
+            }
+
             if let Err(_) = midi_sender.send(MidiCommand::SendMessage(msg)) {
-                println!("[DIAG][bg] Failed to send MIDI command: channel closed?");
+                // MIDI thread is probably shutdown, exit gracefully
                 break;
             }
             idx += 1;

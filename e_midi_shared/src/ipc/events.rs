@@ -5,14 +5,14 @@
 
 use super::types::*;
 use serde::{Deserialize, Serialize};
-
+use crate::ipc::types::{AppId, EventId, generate_event_id};
 /// Base event trait for all IPC events
 pub trait IpcEvent: Send + Sync {
     fn event_id(&self) -> EventId;
     fn timestamp(&self) -> u64;
     fn source_app(&self) -> AppId;
 }
-
+pub type IpcEventSender = std::sync::mpsc::Sender<Event>;
 /// Core event types in the system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {

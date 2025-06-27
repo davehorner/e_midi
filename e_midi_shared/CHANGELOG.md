@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.2...e_midi_shared-v0.1.3) - 2025-06-27
+
+### Added
+
+- *(ipc)* add full zero-copy MIDI event IPC system using iceoryx2
+
 ## [0.1.2](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.1...e_midi_shared-v0.1.2) - 2025-06-26
 
 ### Added
