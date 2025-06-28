@@ -396,48 +396,6 @@ If you encounter build errors:
 - **Timing issues**: Check system audio latency settings
 - **Crash during playback**: Ensure MIDI files are not corrupted
 
-## Development
-
-### Project Structure
-```
-├── build.rs              # MIDI processing and code generation
-├── src/
-│   ├── main.rs           # Main application logic
-│   ├── cli.rs            # Command-line interface
-│   ├── tui.rs            # Terminal user interface
-│   ├── lib.rs            # Library exports
-│   ├── ipc/              # Inter-process communication
-│   │   ├── mod.rs        # IPC module exports
-│   │   ├── events.rs     # Event definitions
-│   │   ├── publisher.rs  # Event publishing
-│   │   ├── subscriber.rs # Event subscription
-│   │   ├── service.rs    # Service management
-│   │   └── types.rs      # Type definitions
-│   └── midi_data.rs      # Generated MIDI data (build artifact)
-├── midi/                 # Static MIDI files (compiled in)
-│   ├── *.mid            # Classical and other MIDI files
-│   ├── attic/           # Archive of various MIDI files
-│   └── good/            # Curated high-quality files
-├── Cargo.toml           # Dependencies and metadata
-└── examples/            # Usage examples
-```
-
-### Adding Features
-The codebase is modular and easy to extend:
-- **New playback modes**: Add functions in `main.rs`
-- **Additional MIDI processing**: Modify `build.rs`
-- **Enhanced UI**: Extend the menu system or TUI components
-- **CLI extensions**: Add new subcommands or options in `cli.rs`
-- **IPC events**: Extend event types in `ipc/events.rs`
-- **Export capabilities**: Add file output options
-
-### Contributing
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
@@ -458,6 +416,9 @@ For details and a full index of available sounds, see [README.MIDI.md](midi/READ
 
 
 ## Changelog
+
+### v0.1.8
+- Added initial integration with [`tidalcycles-rs`](https://github.com/davehorner/e_midi/tree/develop/tidalcycles-rs) for pattern-based MIDI sequencing and experimental live coding support. This enables advanced rhythmic and melodic pattern playback alongside standard MIDI features.
 
 ### v0.1.7
 - Added `e_midi_demo02` and `e_midi_ipc_player` binaries for IPC event monitoring and playback

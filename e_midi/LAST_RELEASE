@@ -1,6 +1,6 @@
-﻿25/06/27|fd379ef|0.1.7
-## [0.1.7](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.6...e_midi-v0.1.7) - 2025-06-27
+﻿25/06/28|baf8166|0.1.8
+## [0.1.8](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.7...e_midi-v0.1.8) - 2025-06-28
 
 ### Added
 
-- *(ipc)* add full zero-copy MIDI event IPC system using iceoryx2
+- Added initial integration with [`tidalcycles-rs`](https://github.com/davehorner/e_midi/tree/develop/tidalcycles-rs) for pattern-based MIDI sequencing and experimental live coding support. This enables advanced rhythmic and melodic pattern playback alongside standard MIDI features.
