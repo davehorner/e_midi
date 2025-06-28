@@ -1,0 +1,30 @@
+[package]
+name = "tidalcycles-rs"
+version = "0.1.0"
+edition = "2024"
+description = "supercollider, superdirt, and tidalcycles with rust."
+authors = ["David Horner"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/davehorner/e_midi/tidalcycles-rs"
+homepage = "https://github.com/davehorner/e_midi/tidalcycles-rs"
+readme = "README.md"
+categories = ["audio"]
+keywords = ["tidalcycles", "osc", "music", "audio", "live-coding"]
+
+[dependencies]
+anyhow = "1.0.98"
+ctrlc = "3.4.7"
+dirs = "6.0.0"
+futures = "0.3.31"
+rosc = "0.11.4"
+scopeguard = "1.2.0"
+semver = "1.0.26"
+tokio = { version = "1.45.1", features = [
+  "io-util",
+  "process",
+  "time",
+  "macros",
+  "signal",
+  "rt-multi-thread",
+] }
+which = "8.0.0"
