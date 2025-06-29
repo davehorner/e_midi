@@ -1,16 +1,48 @@
-use std::process::Command;
-use std::fs;
 use std::cmp::Ordering;
+use std::fs;
+use std::process::Command;
+
+pub fn ensure_gh_installed() -> Option<std::path::PathBuf> {
+    if let Ok(path) = which::which("gh") {
+        Some(path)
+    } else if std::path::Path::new(r"C:\Program Files\GitHub CLI\gh.exe").exists() {
+        Some(std::path::PathBuf::from(
+            r"C:\Program Files\GitHub CLI\gh.exe",
+        ))
+    } else {
+        // Try to install GitHub CLI via winget with elevation
+        let status = Command::new("powershell")
+            .args([
+                "-Command",
+                "Start-Process winget -ArgumentList 'install --id=GitHub.cli -e --accept-source-agreements --accept-package-agreements' -Verb RunAs -Wait",
+            ])
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                if let Ok(path) = which::which("gh") {
+                    Some(path)
+                } else if std::path::Path::new(r"C:\Program Files\GitHub CLI\gh.exe").exists() {
+                    Some(std::path::PathBuf::from(
+                        r"C:\Program Files\GitHub CLI\gh.exe",
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
 
 pub fn ensure_supercollider_installed() -> Option<std::path::PathBuf> {
-
     // Try to find sclang in PATH
     if let Ok(path) = which::which("sclang") {
         return Some(path);
     }
 
     // Try to find the latest SuperCollider in Program Files
-    let program_files = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let program_files =
+        std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
     let sc_prefix = "SuperCollider-";
     let mut latest_version: Option<(semver::Version, std::path::PathBuf)> = None;
 
@@ -68,7 +100,9 @@ pub fn ensure_supercollider_installed() -> Option<std::path::PathBuf> {
                                 let exe_path = entry.path().join("sclang.exe");
                                 if exe_path.exists() {
                                     match &latest_version {
-                                        Some((latest, _)) if version.cmp(latest) == Ordering::Greater => {
+                                        Some((latest, _))
+                                            if version.cmp(latest) == Ordering::Greater =>
+                                        {
                                             latest_version = Some((version, exe_path));
                                         }
                                         None => {
@@ -87,7 +121,6 @@ pub fn ensure_supercollider_installed() -> Option<std::path::PathBuf> {
         _ => None,
     }
 }
-
 
 pub fn ensure_ghcup_installed() -> Option<std::path::PathBuf> {
     if let Ok(path) = which::which("ghcup") {
@@ -114,7 +147,7 @@ pub fn ensure_ghcup_installed() -> Option<std::path::PathBuf> {
                 } else {
                     None
                 }
-            },
+            }
             _ => None,
         }
     }

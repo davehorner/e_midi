@@ -1,19 +1,17 @@
 mod install;
 
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::{fs};
-use tokio::{process::Command as TokioCommand, time::sleep};
-use crate::install::ensure_supercollider_installed;
 use crate::install::ensure_ghcup_installed;
-use tokio::process::Child;
+use crate::install::ensure_supercollider_installed;
 use ctrlc;
 use rosc::decoder::decode_udp;
 use rosc::OscPacket;
+use std::fs;
+use std::io::{BufRead, Write};
 use std::net::UdpSocket as StdUdpSocket;
+use std::process::{Command as StdCommand, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::process::{Stdio, Command as StdCommand, ChildStdin};
-use std::io::{Write, BufRead};
+use tokio::process::Command as TokioCommand;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -27,7 +25,8 @@ async fn main() -> anyhow::Result<()> {
             let _ = child.kill();
         }
         std::process::exit(1);
-    }).expect("Error setting Ctrl+C handler");
+    })
+    .expect("Error setting Ctrl+C handler");
 
     let ghcup_path = ensure_ghcup_installed();
     // Ensure ghcup is installed
@@ -35,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
         eprintln!("ghcup is not installed and could not be installed automatically.");
         std::process::exit(1);
     } else {
-        let ghcup= ghcup_path.unwrap();
+        let ghcup = ghcup_path.unwrap();
         // Install GHC and Cabal using ghcup
         let status = TokioCommand::new(&ghcup)
             .args(&["install", "ghc"])
@@ -80,10 +79,7 @@ async fn main() -> anyhow::Result<()> {
         }
         let cabal = cabal_path.unwrap();
         // Update cabal package list
-        let status = TokioCommand::new(&cabal)
-            .arg("update")
-            .status()
-            .await?;
+        let status = TokioCommand::new(&cabal).arg("update").status().await?;
         if !status.success() {
             eprintln!("Failed to update cabal package list.");
             std::process::exit(1);
@@ -97,7 +93,6 @@ async fn main() -> anyhow::Result<()> {
         let output = String::from_utf8_lossy(&check_status.stdout);
         println!("Cabal installed packages:\n{}", output);
         if !output.contains("tidal") {
-
             // // Delete contents of GHC and Cabal directories in AppData
             // let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
             // let dirs = [
@@ -132,19 +127,19 @@ async fn main() -> anyhow::Result<()> {
             //     }
             // }
 
-
             // Install tidal as a library with verbose output and a timeout
 
             println!("Installing tidal with cabal (this may take a while)...");
             let mut cmd = TokioCommand::new(&cabal);
             cmd.args(["v1-install", "tidal", "--force-reinstalls", "--verbose"]);
-            let child = cmd.stdout(std::process::Stdio::piped())
+            let child = cmd
+                .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()?;
             // Track this child
             children.lock().unwrap().push(child);
             // Take ownership of the child process to call wait_with_output
-            let mut child = children.lock().unwrap().pop().unwrap();
+            let child = children.lock().unwrap().pop().unwrap();
             let output = child.wait_with_output().await?;
             let out = String::from_utf8_lossy(&output.stdout);
             let err = String::from_utf8_lossy(&output.stderr);
@@ -153,7 +148,6 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("Failed to install tidal with cabal.");
                 // std::process::exit(1);
             }
-            
         } else {
             println!("tidal is already installed.");
         }
@@ -162,7 +156,9 @@ async fn main() -> anyhow::Result<()> {
     // Ensure SuperCollider is installed
     let sclang_path = ensure_supercollider_installed();
     if sclang_path.is_none() {
-        eprintln!("SuperCollider (sclang) is not installed and could not be installed automatically.");
+        eprintln!(
+            "SuperCollider (sclang) is not installed and could not be installed automatically."
+        );
         std::process::exit(1);
     }
 
@@ -187,6 +183,14 @@ async fn main() -> anyhow::Result<()> {
 
     tidalcycles_rs::find::find_tools_set_env_path();
 
+    if !tidalcycles_rs::supercollider_sc3_plugins::is_sc3_plugins_installed() {
+        // Install sc3-plugins if not already installed
+        println!("Installing sc3-plugins...");
+        tidalcycles_rs::supercollider_sc3_plugins::install_sc3_plugins()?;
+    } else {
+        println!("sc3-plugins are already installed.");
+    }
+
     // 1. Write startup .scd for headless SC
     let scd = r#"
 (
@@ -198,13 +202,20 @@ s.options.maxSynthDefs = 1024;
 s.options.numWireBufs = 128;
 if (SuperDirt.notNil) {
     "[DEBUG] SuperDirt is present".postln;
+
+    
+
+
     s.reboot { s.waitForBoot {
         "[DEBUG] Server booted, starting SuperDirt".postln;
         ~dirt = SuperDirt(2, s);
         ~dirt.loadSoundFiles;
         ~dirt.start(57120, 0 ! 12);
         ~d1 = ~dirt.orbits[0];
-        
+        ~superdirtPath = Quarks.folder +/+ "SuperDirt";
+        this.executeFile(~superdirtPath +/+ "library" +/+ "default-synths-extra.scd");
+        this.executeFile(~superdirtPath +/+ "library" +/+ "default-effects-extra.scd");
+
         // OSC code evaluation handler (after SuperDirt is started)
         (
         ~oscEval = OSCFunc({ |msg, time, addr, recvPort|
@@ -249,7 +260,9 @@ if (SuperDirt.notNil) {
             thread::spawn(move || {
                 let mut line = String::new();
                 while let Ok(n) = reader.read_line(&mut line) {
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                     print!("[SuperCollider stdout] {}", line);
                     line.clear();
                 }
@@ -260,7 +273,9 @@ if (SuperDirt.notNil) {
             thread::spawn(move || {
                 let mut line = String::new();
                 while let Ok(n) = reader.read_line(&mut line) {
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                     print!("[SuperCollider stderr] {}", line);
                     line.clear();
                 }
@@ -270,24 +285,24 @@ if (SuperDirt.notNil) {
     });
     println!("SuperCollider launched in background..");
     // 4. Send pattern to SuperCollider via file argument (optional, can be removed)
-//     let pattern_code = r#"
-// ~d1 = ~dirt.orbits[0];
-// ~d1.soundLibrary.addMIDI(\\tidal, (type: \\midi, midiout: MIDIOut(0)));
-// ~d1.sendMsg("/dirt/play", \"d1 $ s \\\"bd sn\\\" # gain \\\"0.8\\\" # orbit \\\"0\\\"\");
-// 0.exit;
-// "#;
-//     fs::write("pattern.scd", pattern_code)?;
-//     let mut sc_pattern = TokioCommand::new(&sclang)
-//         .arg("-D")
-//         .arg("pattern.scd")
-//         .stdout(std::process::Stdio::piped())
-//         .stderr(std::process::Stdio::piped())
-//         .spawn()?;
-//     children.lock().unwrap().push(sc_pattern);
-//     // Take ownership of the child process to call wait_with_output
-//     let mut sc_pattern = children.lock().unwrap().pop().unwrap();
-//     let output = sc_pattern.spawn().await?;
-//     println!("SuperCollider pattern output:\n{}", String::from_utf8_lossy(&output.stdout));
+    //     let pattern_code = r#"
+    // ~d1 = ~dirt.orbits[0];
+    // ~d1.soundLibrary.addMIDI(\\tidal, (type: \\midi, midiout: MIDIOut(0)));
+    // ~d1.sendMsg("/dirt/play", \"d1 $ s \\\"bd sn\\\" # gain \\\"0.8\\\" # orbit \\\"0\\\"\");
+    // 0.exit;
+    // "#;
+    //     fs::write("pattern.scd", pattern_code)?;
+    //     let mut sc_pattern = TokioCommand::new(&sclang)
+    //         .arg("-D")
+    //         .arg("pattern.scd")
+    //         .stdout(std::process::Stdio::piped())
+    //         .stderr(std::process::Stdio::piped())
+    //         .spawn()?;
+    //     children.lock().unwrap().push(sc_pattern);
+    //     // Take ownership of the child process to call wait_with_output
+    //     let mut sc_pattern = children.lock().unwrap().pop().unwrap();
+    //     let output = sc_pattern.spawn().await?;
+    //     println!("SuperCollider pattern output:\n{}", String::from_utf8_lossy(&output.stdout));
 
     // === SPAWN TIDALCYCLES (GHCi) IN A THREAD WITH IO ===
     let (tidal_tx, tidal_rx) = std::sync::mpsc::channel::<String>();
@@ -343,9 +358,13 @@ if (SuperDirt.notNil) {
                 loop {
                     line.clear();
                     if let Ok(n) = stdout.read_line(&mut line) {
-                        if n == 0 { break; }
+                        if n == 0 {
+                            break;
+                        }
                         print!("[Tidal stdout] {}", line);
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
             });
             // Thread for reading stderr
@@ -354,9 +373,13 @@ if (SuperDirt.notNil) {
                 loop {
                     line.clear();
                     if let Ok(n) = stderr.read_line(&mut line) {
-                        if n == 0 { break; }
+                        if n == 0 {
+                            break;
+                        }
                         print!("[Tidal stderr] {}", line);
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
             });
             // Main loop: receive code from channel and write to stdin
@@ -366,7 +389,6 @@ if (SuperDirt.notNil) {
             }
             let _ = out_thread.join();
             let _ = err_thread.join();
-
         }
     });
 

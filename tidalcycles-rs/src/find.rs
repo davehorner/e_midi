@@ -1,8 +1,19 @@
-use std::process::Command;
-use std::fs;
 use std::cmp::Ordering;
 use std::env;
 use std::ffi::OsString;
+use std::fs;
+
+pub fn find_gh() -> Option<std::path::PathBuf> {
+    if let Ok(path) = which::which("gh") {
+        Some(path)
+    } else if std::path::Path::new(r"C:\Program Files\GitHub CLI\gh.exe").exists() {
+        Some(std::path::PathBuf::from(
+            r"C:\Program Files\GitHub CLI\gh.exe",
+        ))
+    } else {
+        None
+    }
+}
 
 pub fn find_ghci() -> Option<std::path::PathBuf> {
     if let Ok(path) = which::which("ghci") {
@@ -21,7 +32,8 @@ pub fn find_supercollider() -> Option<std::path::PathBuf> {
     }
 
     // Try to find the latest SuperCollider in Program Files
-    let program_files = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let program_files =
+        std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
     let sc_prefix = "SuperCollider-";
     let mut latest_version: Option<(semver::Version, std::path::PathBuf)> = None;
 
@@ -59,7 +71,8 @@ pub fn find_supercollider_scsynth() -> Option<std::path::PathBuf> {
     }
 
     // Try to find the latest SuperCollider scsynth.exe in Program Files
-    let program_files = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let program_files =
+        std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
     let sc_prefix = "SuperCollider-";
     let mut latest_version: Option<(semver::Version, std::path::PathBuf)> = None;
 
@@ -111,22 +124,23 @@ pub fn find_cabal() -> Option<std::path::PathBuf> {
 }
 
 pub fn find_tools_set_env_path() {
-
     if let Some(sc_path) = find_supercollider() {
         if let Some(sc_dir) = sc_path.parent() {
             let path_var = env::var_os("PATH").unwrap_or_else(|| OsString::new());
             let paths_vec: Vec<std::path::PathBuf> = env::split_paths(&path_var).collect();
             let sc_dir_str = sc_dir.to_string_lossy().to_lowercase();
 
-            let already_in_path = paths_vec.iter().any(|p| {
-                p.to_string_lossy().to_lowercase() == sc_dir_str
-            });
+            let already_in_path = paths_vec
+                .iter()
+                .any(|p| p.to_string_lossy().to_lowercase() == sc_dir_str);
 
             if !already_in_path {
                 let mut new_paths: Vec<std::path::PathBuf> = vec![sc_dir.to_path_buf()];
                 new_paths.extend(paths_vec);
                 let new_path = env::join_paths(new_paths).expect("Failed to join PATH");
-                unsafe { env::set_var("PATH", &new_path); }
+                unsafe {
+                    env::set_var("PATH", &new_path);
+                }
             }
         }
     }

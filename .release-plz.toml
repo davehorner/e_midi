@@ -1,8 +1,0 @@
-[workspace]
-packages = ["e_midi_shared", "e_midi"]
-
-[package.e_midi_shared]
-release = true
-
-[package.e_midi]
-release = true
