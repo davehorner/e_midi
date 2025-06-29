@@ -418,10 +418,13 @@ impl MidiPlayer {
 
         // --- IPC: create zero-copy publisher for MidiNoteEvent ---
         // let mut publisher = iceoryx2::port::publisher::Publisher::<iceoryx2::service::ipc::Service, e_midi_shared::ipc_protocol::MidiNoteEvent, ()>::create("e_midi_midi_note_events").expect("Failed to create MidiNoteEvent publisher");
-        let node = iceoryx2::node::NodeBuilder::new().create::<iceoryx2::service::ipc::Service>()?;
+        let node =
+            iceoryx2::node::NodeBuilder::new().create::<iceoryx2::service::ipc::Service>()?;
 
         let service = node
-            .service_builder(&iceoryx2::prelude::ServiceName::new(ipc::EMIDI_EVENTS_SERVICE)?)
+            .service_builder(&iceoryx2::prelude::ServiceName::new(
+                ipc::EMIDI_EVENTS_SERVICE,
+            )?)
             .publish_subscribe::<e_midi_shared::ipc_protocol::MidiNoteEvent>()
             .max_publishers(16)
             .max_subscribers(16)
@@ -451,12 +454,22 @@ impl MidiPlayer {
                 Kind::Off => vec![0x80 | event.chan, event.p, 0],
             };
             // --- IPC: publish note-level event ---
-            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
             let midi_note_event = e_midi_shared::ipc_protocol::MidiNoteEvent {
                 channel: event.chan,
                 pitch: event.p,
-                velocity: if let Kind::On = event.kind { event.v } else { 0 },
-                kind: match event.kind { Kind::On => 0, Kind::Off => 1 },
+                velocity: if let Kind::On = event.kind {
+                    event.v
+                } else {
+                    0
+                },
+                kind: match event.kind {
+                    Kind::On => 0,
+                    Kind::Off => 1,
+                },
                 timestamp: now,
                 _reserved: [0; 4],
             };
@@ -526,15 +539,24 @@ impl MidiPlayer {
             current_playing.take();
             None
         };
-        let node = iceoryx2::node::NodeBuilder::new().create::<iceoryx2::service::ipc::Service>().expect("Failed to create IPC node");
+        let node = iceoryx2::node::NodeBuilder::new()
+            .create::<iceoryx2::service::ipc::Service>()
+            .expect("Failed to create IPC node");
 
         let service = node
-            .service_builder(&iceoryx2::prelude::ServiceName::new(ipc::EMIDI_EVENTS_SERVICE).expect("Failed to create service name"))
+            .service_builder(
+                &iceoryx2::prelude::ServiceName::new(ipc::EMIDI_EVENTS_SERVICE)
+                    .expect("Failed to create service name"),
+            )
             .publish_subscribe::<e_midi_shared::ipc_protocol::MidiNoteEvent>()
             .max_publishers(16)
             .max_subscribers(16)
             .open_or_create();
-        let publisher = service.expect("service bad").publisher_builder().create().expect("Failed to create publisher");
+        let publisher = service
+            .expect("service bad")
+            .publisher_builder()
+            .create()
+            .expect("Failed to create publisher");
         // Move conn into the playback thread, get it back after join
         let mut conn_opt = Some(conn);
         while let Ok(command) = receiver.recv() {
@@ -687,14 +709,16 @@ impl MidiPlayer {
                         // All IPC publisher usage must remain in the parent thread due to !Send/!Sync.
                         let stop_flag_clone = Arc::clone(&stop_flag);
                         let timeline_clone = timeline.clone();
-                        
+
                         playback_thread = Some(std::thread::spawn(move || {
                             let start = Instant::now();
                             let mut idx_tl = 0;
                             // Send all events at or before start_ms immediately (fix for short songs)
                             let mut sent_first = false;
                             let mut last_played_ms = start_ms;
-                            while idx_tl < timeline_clone.len() && timeline_clone[idx_tl].0 <= start_ms {
+                            while idx_tl < timeline_clone.len()
+                                && timeline_clone[idx_tl].0 <= start_ms
+                            {
                                 let (t, on, chan, pitch, vel) = timeline_clone[idx_tl];
                                 let msg = if on {
                                     [0x90 | (chan & 0x0F), pitch, vel]
@@ -718,7 +742,9 @@ impl MidiPlayer {
                                     break;
                                 }
                                 let now = start.elapsed().as_millis() as u32 + start_ms;
-                                while idx_tl < timeline_clone.len() && timeline_clone[idx_tl].0 <= now {
+                                while idx_tl < timeline_clone.len()
+                                    && timeline_clone[idx_tl].0 <= now
+                                {
                                     let (t, on, chan, pitch, vel) = timeline_clone[idx_tl];
                                     let msg = if on {
                                         [0x90 | (chan & 0x0F), pitch, vel]
@@ -2024,7 +2050,10 @@ impl MidiPlayer {
         events
     }
     /// Get or create an IPC event subscriber for a given source AppId
-    pub fn get_event_subscriber(&mut self, source_app: ipc::AppId) -> Option<&mut ipc::EventSubscriber> {
+    pub fn get_event_subscriber(
+        &mut self,
+        source_app: ipc::AppId,
+    ) -> Option<&mut ipc::EventSubscriber> {
         // Ensure IPC manager is initialized
         if self.ipc_manager.is_none() {
             println!("🔄 WRONG: Initializing IPC service manager for e_midi...");
@@ -2598,24 +2627,24 @@ impl MidiPlayer {
             }
         }
 
-            // Print final newline to end the progress line
-            println!("");
+        // Print final newline to end the progress line
+        println!("");
 
-            // Send all notes off
-            for channel in 0..16 {
-                self.send_midi_command(MidiCommand::SendMessage(vec![0xB0 | channel, 123, 0]))?;
-            }
+        // Send all notes off
+        for channel in 0..16 {
+            self.send_midi_command(MidiCommand::SendMessage(vec![0xB0 | channel, 123, 0]))?;
+        }
 
-            // Wait for input thread to finish if it was spawned
-            if let Some(thread) = input_thread {
-                let _ = thread.join();
-            }
+        // Wait for input thread to finish if it was spawned
+        if let Some(thread) = input_thread {
+            let _ = thread.join();
+        }
 
-            println!("🏁 Playback function completed");
+        println!("🏁 Playback function completed");
 
-            // Return false if user quit, true if song finished naturally or next was pressed
-            let quit_flag = should_quit.load(Ordering::SeqCst);
-            Ok(!quit_flag)
+        // Return false if user quit, true if song finished naturally or next was pressed
+        let quit_flag = should_quit.load(Ordering::SeqCst);
+        Ok(!quit_flag)
     }
     /// Simple playback method for non-interactive scan mode - no input handling, just plays for the specified duration
     fn play_events_simple(

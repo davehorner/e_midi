@@ -4,20 +4,20 @@
 //! and other applications in the e_* ecosystem (e_grid, state server, etc.)
 
 pub mod events;
+pub mod music_sync_publisher;
+pub mod music_sync_subscriber;
 pub mod publisher;
 pub mod service;
 pub mod subscriber;
 pub mod types;
-pub mod music_sync_subscriber;
-pub mod music_sync_publisher;
 
+pub use crate::ipc::types::*;
 pub use events::*;
+pub use music_sync_publisher::*;
+pub use music_sync_subscriber::*;
 pub use publisher::*;
 pub use service::*;
 pub use subscriber::*;
-pub use crate::ipc::types::*;
-pub use music_sync_subscriber::*;
-pub use music_sync_publisher::*;
 
 use std::error::Error;
 use std::fmt;
@@ -40,8 +40,8 @@ impl fmt::Display for IpcError {
 
 impl Error for IpcError {}
 
-use once_cell::sync::OnceCell;
 use crate::ipc::events::IpcEventSender;
+use once_cell::sync::OnceCell;
 
 pub static IPC_EVENT_SENDER: OnceCell<IpcEventSender> = OnceCell::new();
 pub const EMIDI_EVENTS_SERVICE: &str = "e_midi_events";

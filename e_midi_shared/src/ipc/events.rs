@@ -4,8 +4,8 @@
 //! lock-free transmission between processes.
 
 use super::types::*;
+use crate::ipc::types::{generate_event_id, AppId, EventId};
 use serde::{Deserialize, Serialize};
-use crate::ipc::types::{AppId, EventId, generate_event_id};
 /// Base event trait for all IPC events
 pub trait IpcEvent: Send + Sync {
     fn event_id(&self) -> EventId;

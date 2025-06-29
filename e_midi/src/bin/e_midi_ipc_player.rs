@@ -34,7 +34,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Change voice every 4 seconds
         if last_voice_change.elapsed().as_secs() >= 4 {
             my_voice = rng.gen_range(0..16) as u8;
-            println!("[demo] Changing override voice to {} ({})", my_voice, gm_instrument_name(my_voice));
+            println!(
+                "[demo] Changing override voice to {} ({})",
+                my_voice,
+                gm_instrument_name(my_voice)
+            );
             last_voice_change = std::time::Instant::now();
         }
         match event_sub.receive() {
@@ -47,21 +51,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = midi_player
                             .get_command_sender()
                             .send(e_midi::MidiCommand::SendMessage(vec![0xC0 | 0, my_voice]));
-                        let _ = midi_player
-                            .get_command_sender()
-                            .send(e_midi::MidiCommand::SendMessage(vec![
+                        let _ = midi_player.get_command_sender().send(
+                            e_midi::MidiCommand::SendMessage(vec![
                                 0x90 | 0,
                                 midi_event.pitch,
                                 midi_event.velocity,
-                            ]));
+                            ]),
+                        );
                         println!(
                             "[ipc] NoteOn: pitch={} velocity={} (overridden to channel 0, voice {} - {})",
                             midi_event.pitch, midi_event.velocity, my_voice, gm_instrument_name(my_voice)
                         );
                     } else if midi_event.kind == 1 {
-                        let _ = midi_player
-                            .get_command_sender()
-                            .send(e_midi::MidiCommand::SendMessage(vec![0x80 | 0, midi_event.pitch, 0]));
+                        let _ = midi_player.get_command_sender().send(
+                            e_midi::MidiCommand::SendMessage(vec![0x80 | 0, midi_event.pitch, 0]),
+                        );
                         println!(
                             "[ipc] NoteOff: pitch={} (overridden to channel 0)",
                             midi_event.pitch
@@ -72,7 +76,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // for sample in samples { ... } // (uncomment if needed)
             }
             Err(e) => {
-                eprintln!("[demo] Error receiving events: {}. Will attempt to reconnect...", e);
+                eprintln!(
+                    "[demo] Error receiving events: {}. Will attempt to reconnect...",
+                    e
+                );
                 std::thread::sleep(Duration::from_millis(200));
             }
         }

@@ -20,6 +20,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev          
       - name: Run tests
         run: cargo test --all
+      - name: Print rustfmt version
+        run: rustfmt --version
       - name: Check formatting
         run: cargo fmt --check
       - name: Clippy

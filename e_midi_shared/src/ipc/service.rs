@@ -3,13 +3,13 @@
 //! Provides lock-free service registration and discovery
 
 // use serde::{Deserialize, Serialize};
+use super::{AppId, EventPublisher, EventSubscriber, IpcResult};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::sync::OnceLock;
-use serde::{Deserialize, Serialize};
-use super::{AppId, EventPublisher, EventSubscriber, IpcResult};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Service information for discovery
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,7 +129,10 @@ pub struct IpcServiceManager {
 impl IpcServiceManager {
     /// Create a new IPC service manager
     pub fn new(app_id: AppId) -> IpcResult<Self> {
-        println!("[IPC SERVICE MANAGER DEBUG] Creating IpcServiceManager for app_id: {:?}", app_id);
+        println!(
+            "[IPC SERVICE MANAGER DEBUG] Creating IpcServiceManager for app_id: {:?}",
+            app_id
+        );
         use std::io::Write;
         std::io::stdout().flush().ok();
         let (tx, rx) = std::sync::mpsc::channel();
@@ -247,7 +250,10 @@ impl IpcServiceManager {
             println!("[IPC DEBUG] Publishing event: {:?}", event); // DEBUG
             let _ = ipc_manager.publish_event(event);
         } else {
-            println!("[IPC DEBUG] IPC manager not initialized, skipping event publishing: {:?}", event);
+            println!(
+                "[IPC DEBUG] IPC manager not initialized, skipping event publishing: {:?}",
+                event
+            );
         }
     }
 }

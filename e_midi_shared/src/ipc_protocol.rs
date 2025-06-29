@@ -48,7 +48,11 @@ pub struct PlaySongAtHeartbeat {
 
 impl Default for TrackVoiceOverride {
     fn default() -> Self {
-        Self { track_index: 0, voice: 0, _reserved: [0; 2] }
+        Self {
+            track_index: 0,
+            voice: 0,
+            _reserved: [0; 2],
+        }
     }
 }
 
