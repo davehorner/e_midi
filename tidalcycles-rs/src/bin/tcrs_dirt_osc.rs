@@ -1,4 +1,4 @@
-use rosc::{OscPacket, OscMessage, OscType};
+use rosc::{OscMessage, OscPacket, OscType};
 use std::net::UdpSocket;
 use std::thread::sleep;
 use std::time::Duration;
@@ -13,9 +13,12 @@ fn main() -> std::io::Result<()> {
         let msg = OscMessage {
             addr: "/dirt/play".to_string(),
             args: vec![
-                OscType::String("s".to_string()), OscType::String(pattern[i % 2].to_string()),
-                OscType::String("gain".to_string()), OscType::Float(0.8),
-                OscType::String("orbit".to_string()), OscType::Int(0),
+                OscType::String("s".to_string()),
+                OscType::String(pattern[i % 2].to_string()),
+                OscType::String("gain".to_string()),
+                OscType::Float(0.8),
+                OscType::String("orbit".to_string()),
+                OscType::Int(0),
             ],
         };
         let packet = OscPacket::Message(msg);

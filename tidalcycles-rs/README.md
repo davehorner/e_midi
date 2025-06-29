@@ -9,6 +9,7 @@ Rust tools and utilities for interacting with [TidalCycles](https://tidalcycles.
 - Async and multi-threaded support via Tokio
 - Example code for sending patterns, arpeggios, and more
 - Windows automation for installing all dependencies - MacOS/Linux may come in the future.
+- downloads and installs the latest github [sc3-plugins](https://github.com/supercollider/sc3-plugins/).
 
 The core concept is, run tidalcycles-rs, it installs the required software (if needed) and it makes noise without a lot of additional effort.
 
