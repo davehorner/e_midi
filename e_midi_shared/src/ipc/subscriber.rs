@@ -30,38 +30,39 @@ impl EventSubscriber {
         println!("[IPC SUBSCRIBER DEBUG] Using service name: {} (source_app: {:?}, subscriber_app: {:?})", service_name, source_app, subscriber_app);
 
         // Create node (suppress debug output)
-        let node = NodeBuilder::new()
-            .create::<Service>()
-            .map_err(|e| {
-                eprintln!("[IPC SUBSCRIBER ERROR] Node creation failed: {:?}", e);
-                IpcError::NodeCreation(format!("Node creation failed"))
-            })?;
+        let node = NodeBuilder::new().create::<Service>().map_err(|e| {
+            eprintln!("[IPC SUBSCRIBER ERROR] Node creation failed: {:?}", e);
+            IpcError::NodeCreation(format!("Node creation failed"))
+        })?;
 
         // Try to open existing service first, if that fails, return error (do not create)
         let service = match node
-            .service_builder(
-                &ServiceName::new(&service_name)
-                    .map_err(|e| {
-                        eprintln!("[IPC SUBSCRIBER ERROR] Invalid service name: {:?}", e);
-                        IpcError::ServiceCreation(format!("Invalid service name"))
-                    })?,
-            )
+            .service_builder(&ServiceName::new(&service_name).map_err(|e| {
+                eprintln!("[IPC SUBSCRIBER ERROR] Invalid service name: {:?}", e);
+                IpcError::ServiceCreation(format!("Invalid service name"))
+            })?)
             .publish_subscribe::<IpcPayload>()
             .open()
         {
             Ok(service) => service,
             Err(e) => {
-                eprintln!("[IPC SUBSCRIBER ERROR] Failed to open service (does publisher exist?): {:?}", e);
-                return Err(IpcError::ServiceCreation(format!("Failed to open service: {:?}", e)));
+                eprintln!(
+                    "[IPC SUBSCRIBER ERROR] Failed to open service (does publisher exist?): {:?}",
+                    e
+                );
+                return Err(IpcError::ServiceCreation(format!(
+                    "Failed to open service: {:?}",
+                    e
+                )));
             }
         };
-        let subscriber = service
-            .subscriber_builder()
-            .create()
-            .map_err(|e| {
-                eprintln!("[IPC SUBSCRIBER ERROR] Failed to create subscriber: {:?}", e);
-                IpcError::SubscriberCreation(format!("Failed to create subscriber"))
-            })?;
+        let subscriber = service.subscriber_builder().create().map_err(|e| {
+            eprintln!(
+                "[IPC SUBSCRIBER ERROR] Failed to create subscriber: {:?}",
+                e
+            );
+            IpcError::SubscriberCreation(format!("Failed to create subscriber"))
+        })?;
 
         Ok(Self {
             subscriber,
@@ -97,7 +98,10 @@ impl EventSubscriber {
                 // If single event fails, try as batch
                 events.extend(batch);
             } else {
-                eprintln!("[IPC SUBSCRIBER ERROR] Failed to deserialize event data: {:?}", json_data);
+                eprintln!(
+                    "[IPC SUBSCRIBER ERROR] Failed to deserialize event data: {:?}",
+                    json_data
+                );
                 return Err(IpcError::DeserializationError(
                     "Failed to deserialize event data".to_string(),
                 ));

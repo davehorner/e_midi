@@ -23,7 +23,10 @@ impl MusicSyncPublisher {
             .create::<Service>()
             .map_err(|e| format!("Node creation failed: {e:?}"))?;
         let service = node
-            .service_builder(&ServiceName::new(E_MIDI_MUSIC_SYNC_SERVICE).map_err(|e| format!("Invalid service name: {e:?}"))?)
+            .service_builder(
+                &ServiceName::new(E_MIDI_MUSIC_SYNC_SERVICE)
+                    .map_err(|e| format!("Invalid service name: {e:?}"))?,
+            )
             .publish_subscribe::<PlaySongAtHeartbeat>()
             .open_or_create()
             .map_err(|e| format!("Failed to create/open service: {e:?}"))?;
@@ -36,7 +39,8 @@ impl MusicSyncPublisher {
 
     /// Publish a PlaySongAtHeartbeat message (zero-copy)
     pub fn publish(&mut self, msg: &PlaySongAtHeartbeat) -> Result<(), String> {
-        self.publisher.send_copy(*msg)
+        self.publisher
+            .send_copy(*msg)
             .map(|_| ())
             .map_err(|e| format!("Failed to publish: {e:?}"))
     }

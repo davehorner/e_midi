@@ -191,8 +191,30 @@ async fn main() -> anyhow::Result<()> {
         println!("sc3-plugins are already installed.");
     }
 
+    // === AUTOMATE TIDALLOOPER QUARK INSTALL ===
+    // Use helper to install in Quarks dir
+    // match tidalcycles_rs::supercollider_looper::ensure_tidallooper_quark_installed() {
+    //     Ok(true) => println!("TidalLooper Quark cloned successfully to Quarks dir."),
+    //     Ok(false) => println!("TidalLooper Quark already present in Quarks dir."),
+    //     Err(e) => eprintln!("[WARN] {}", e),
+    // }
+    // Use helper to install in user Extensions dir (Windows plugin path)
+    match tidalcycles_rs::supercollider_looper::ensure_tidallooper_in_user_extensions() {
+        Ok(true) => println!("TidalLooper Quark cloned successfully to user Extensions dir."),
+        Ok(false) => println!("TidalLooper Quark already present in user Extensions dir."),
+        Err(e) => eprintln!("[WARN] {}", e),
+    }
+
     // 1. Write startup .scd for headless SC
-    let scd = r#"
+    let username = std::env::var("USERNAME").unwrap_or_else(|_| "User".to_string());
+    let looper_path = format!(
+        "C:/Users/{}/AppData/Local/SuperCollider/Extensions/tidal-looper",
+        username
+    )
+    .replace("\\", "/");
+    println!("TidalLooper path: {}", looper_path);
+    let scd = format!(
+        r#"
 (
 "[DEBUG] startup.scd begin".postln;
 s.options.numBuffers = 4096;
@@ -200,15 +222,20 @@ s.options.memSize = 131072;
 s.options.maxNodes = 1024;
 s.options.maxSynthDefs = 1024;
 s.options.numWireBufs = 128;
-if (SuperDirt.notNil) {
+// Try to install TidalLooper Quark from user Extensions dir if not present
+if((Quarks.installed.select(_.name == "TidalLooper")).isEmpty) {{
+    Quarks.install("{}");
+}};
+if (SuperDirt.notNil) {{
     "[DEBUG] SuperDirt is present".postln;
 
     
 
 
-    s.reboot { s.waitForBoot {
+    s.reboot {{ s.waitForBoot {{
         "[DEBUG] Server booted, starting SuperDirt".postln;
         ~dirt = SuperDirt(2, s);
+        ~looper = TidalLooper(~dirt);
         ~dirt.loadSoundFiles;
         ~dirt.start(57120, 0 ! 12);
         ~d1 = ~dirt.orbits[0];
@@ -218,28 +245,30 @@ if (SuperDirt.notNil) {
 
         // OSC code evaluation handler (after SuperDirt is started)
         (
-        ~oscEval = OSCFunc({ |msg, time, addr, recvPort|
+        ~oscEval = OSCFunc({{ |msg, time, addr, recvPort|
             var code = msg[1];
-            if (code.isString or: { code.isKindOf(Symbol) }) {
+            if (code.isString or: {{ code.isKindOf(Symbol) }}) {{
                 code.asString.interpret;
-            } {
+            }} {{
                 ("OSC /eval: code is not a String or Symbol: " ++ code.class).postln;
-            }
-        }, '/eval', nil);
+        }}
+        }}, '/eval', nil);
         );
         "[DEBUG] SuperDirt started".postln;
         // 0.exit;
-    };
-    };
-} {
+    }};
+    }};
+}} {{
     "[DEBUG] SuperDirt not found, installing...".postln;
     Quarks.install("SuperDirt");
     thisProcess.recompile;
     "SuperDirt installed. Please restart SuperCollider.".postln;
     0.exit;
-}
+}}
 )
-"#;
+"#,
+        looper_path
+    );
     fs::write("startup.scd", scd)?;
     // Ensure startup.scd is deleted on exit
     let _cleanup = scopeguard::guard((), |_| {

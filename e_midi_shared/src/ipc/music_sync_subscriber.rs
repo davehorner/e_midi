@@ -27,7 +27,10 @@ impl MusicSyncSubscriber {
             .create::<Service>()
             .map_err(|e| format!("Node creation failed: {e:?}"))?;
         let service = node
-            .service_builder(&ServiceName::new(E_MIDI_MUSIC_SYNC_SERVICE).map_err(|e| format!("Invalid service name: {e:?}"))?)
+            .service_builder(
+                &ServiceName::new(E_MIDI_MUSIC_SYNC_SERVICE)
+                    .map_err(|e| format!("Invalid service name: {e:?}"))?,
+            )
             .publish_subscribe::<PlaySongAtHeartbeat>()
             .open_or_create()
             .map_err(|e| format!("Failed to create/open service: {e:?}"))?;
@@ -48,7 +51,11 @@ impl MusicSyncSubscriber {
             return Ok(Vec::new());
         }
         let mut messages = Vec::new();
-        while let Some(sample) = self.subscriber.receive().map_err(|e| format!("Receive error: {e:?}"))? {
+        while let Some(sample) = self
+            .subscriber
+            .receive()
+            .map_err(|e| format!("Receive error: {e:?}"))?
+        {
             messages.push(*sample);
         }
         if !messages.is_empty() {

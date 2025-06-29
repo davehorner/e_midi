@@ -23,24 +23,22 @@ impl EventPublisher {
     /// Create a new event publisher for the specified app
     pub fn new(app_id: AppId) -> IpcResult<Self> {
         let service_name = "e_midi_events".to_string();
-        println!("[IPC PUBLISHER DEBUG] Using service name: {} (app_id: {:?})", service_name, app_id);
+        println!(
+            "[IPC PUBLISHER DEBUG] Using service name: {} (app_id: {:?})",
+            service_name, app_id
+        );
 
         // Create node (suppress debug output)
-        let node = NodeBuilder::new()
-            .create::<Service>()
-            .map_err(|e| {
-                eprintln!("[IPC PUBLISHER ERROR] Node creation failed: {:?}", e);
-                IpcError::NodeCreation(format!("Node creation failed"))
-            })?;
+        let node = NodeBuilder::new().create::<Service>().map_err(|e| {
+            eprintln!("[IPC PUBLISHER ERROR] Node creation failed: {:?}", e);
+            IpcError::NodeCreation(format!("Node creation failed"))
+        })?;
 
         let service = node
-            .service_builder(
-                &ServiceName::new(&service_name)
-                    .map_err(|e| {
-                        eprintln!("[IPC PUBLISHER ERROR] Invalid service name: {:?}", e);
-                        IpcError::ServiceCreation(format!("Invalid service name"))
-                    })?,
-            )
+            .service_builder(&ServiceName::new(&service_name).map_err(|e| {
+                eprintln!("[IPC PUBLISHER ERROR] Invalid service name: {:?}", e);
+                IpcError::ServiceCreation(format!("Invalid service name"))
+            })?)
             .publish_subscribe::<IpcPayload>()
             .max_publishers(16)
             .max_subscribers(16)
@@ -50,13 +48,10 @@ impl EventPublisher {
                 IpcError::ServiceCreation(format!("Failed to create service"))
             })?;
 
-        let publisher = service
-            .publisher_builder()
-            .create()
-            .map_err(|e| {
-                eprintln!("[IPC PUBLISHER ERROR] Failed to create publisher: {:?}", e);
-                IpcError::PublisherCreation(format!("Failed to create publisher"))
-            })?;
+        let publisher = service.publisher_builder().create().map_err(|e| {
+            eprintln!("[IPC PUBLISHER ERROR] Failed to create publisher: {:?}", e);
+            IpcError::PublisherCreation(format!("Failed to create publisher"))
+        })?;
 
         Ok(Self {
             publisher,
@@ -78,8 +73,14 @@ impl EventPublisher {
                 println!("[IPC PUBLISHER DEBUG] Successfully sent event: {:?}", event);
             }
             Err(e) => {
-                eprintln!("[IPC PUBLISHER ERROR] Failed to send event: {:?} (error: {:?})", event, e);
-                return Err(IpcError::SendError(format!("Failed to send event: {:?}", e)));
+                eprintln!(
+                    "[IPC PUBLISHER ERROR] Failed to send event: {:?} (error: {:?})",
+                    event, e
+                );
+                return Err(IpcError::SendError(format!(
+                    "Failed to send event: {:?}",
+                    e
+                )));
             }
         }
 

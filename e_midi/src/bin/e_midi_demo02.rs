@@ -7,8 +7,8 @@
 //
 // NOTE: This demo is Windows-only.
 
-use e_midi_shared::ipc_protocol::MidiNoteEvent;
 use e_midi_shared::ipc;
+use e_midi_shared::ipc_protocol::MidiNoteEvent;
 use iceoryx2::prelude::*;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
