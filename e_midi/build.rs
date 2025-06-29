@@ -33,7 +33,7 @@ fn main() {
     let dest_path = Path::new(&out_dir).join("embedded_midi.rs");
     let mut out = File::create(&dest_path).unwrap();
 
-    // Only import SongData to avoid duplicate type imports in generated code
+    // Import only SongData for generated code (other types use full path)
     writeln!(out, "use e_midi_shared::types::SongData;\n").unwrap();
     for song in &midi_songs {
         // Compute duration_ms for MIDI: max end time of all notes
@@ -312,6 +312,22 @@ fn main() {
                     song_idx += 1;
                 }
             }
+            "tidal" => {
+                let var_name = format!("SONG_{}_TIDAL_DATA", song_idx);
+                let rel_path = path.strip_prefix(&crate_root).unwrap_or(&path);
+                let rel_path_str = rel_path.to_str().unwrap().replace("\\", "/");
+                writeln!(
+                    out,
+                    "static {}: &str = include_str!(\"{}\");",
+                    var_name, rel_path_str
+                )
+                .unwrap();
+                song_info_entries.push(format!(
+                    "SongInfo {{ filename: \"{}\".to_string(), name: \"{}\".to_string(), tracks: vec![], default_tempo: 0, ticks_per_q: None, song_type: e_midi_shared::types::SongType::TidalCycles, source: e_midi_shared::types::SongSource::EmbeddedTidalCycles({}), track_index_map: std::collections::HashMap::new(), duration_ms: None }}",
+                    fname, fname, var_name
+                ));
+                song_idx += 1;
+            }
             _ => {}
         }
     }
@@ -341,8 +357,6 @@ fn main() {
     writeln!(out, "    let ticks_per_q = song_data.ticks_per_q;").unwrap();
     writeln!(out, "    let mut events = Vec::new();").unwrap();
     writeln!(out, "    let track_notes = song_data.track_notes;").unwrap();
-    writeln!(out, "    let mut debug_count = 0;").unwrap();
-    writeln!(out, "    let tempo_usec_per_q = 60_000_000 / tempo_bpm;").unwrap();
     writeln!(out, "    for &track_idx in track_indices {{").unwrap();
     writeln!(
         out,

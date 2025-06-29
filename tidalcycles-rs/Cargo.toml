@@ -1,6 +1,6 @@
 [package]
 name = "tidalcycles-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "supercollider, superdirt, and tidalcycles with rust."
 authors = ["David Horner"]
@@ -28,3 +28,4 @@ tokio = { version = "1.45.1", features = [
   "rt-multi-thread",
 ] }
 which = "8.0.0"
+zip = "4.2.0"

@@ -13,7 +13,12 @@ pub fn scan_wav_files_map<P: AsRef<Path>>(root: P) -> HashMap<PathBuf, Vec<Strin
                     helper(&path, base, map);
                 } else if let Some(ext) = path.extension() {
                     if ext.eq_ignore_ascii_case("wav") {
-                        let rel_dir = path.parent().unwrap().strip_prefix(base).unwrap_or(Path::new("")).to_path_buf();
+                        let rel_dir = path
+                            .parent()
+                            .unwrap()
+                            .strip_prefix(base)
+                            .unwrap_or(Path::new(""))
+                            .to_path_buf();
                         let file_name = path.file_name().unwrap().to_string_lossy().to_string();
                         map.entry(rel_dir).or_default().push(file_name);
                     }
@@ -57,7 +62,10 @@ impl DirtSampleMap {
                     if let Ok(files_iter) = fs::read_dir(&path) {
                         for e in files_iter.flatten() {
                             let p = e.path();
-                            if p.extension().map(|ext| ext.eq_ignore_ascii_case("wav")).unwrap_or(false) {
+                            if p.extension()
+                                .map(|ext| ext.eq_ignore_ascii_case("wav"))
+                                .unwrap_or(false)
+                            {
                                 files.push(p.file_name().unwrap().to_string_lossy().to_string());
                             }
                         }
@@ -76,17 +84,24 @@ impl DirtSampleMap {
                 file_index.insert((bank.clone(), fname.clone()), idx);
             }
         }
-        DirtSampleMap { bank_to_files, file_index }
+        DirtSampleMap {
+            bank_to_files,
+            file_index,
+        }
     }
 
     /// Get index of a sample in a bank by filename, if present
     pub fn index_of(&self, bank: &str, filename: &str) -> Option<usize> {
-        self.file_index.get(&(bank.to_string(), filename.to_string())).copied()
+        self.file_index
+            .get(&(bank.to_string(), filename.to_string()))
+            .copied()
     }
 
     /// Get filename by bank and index, if present
     pub fn filename_of(&self, bank: &str, index: usize) -> Option<&str> {
-        self.bank_to_files.get(bank).and_then(|v| v.get(index).map(|s| s.as_str()))
+        self.bank_to_files
+            .get(bank)
+            .and_then(|v| v.get(index).map(|s| s.as_str()))
     }
 }
 

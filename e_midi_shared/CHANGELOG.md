@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.3...e_midi_shared-v0.1.4) - 2025-06-29
+
+### Added
+
+- *(sc3-plugins)* support for automated sc3-plugin installation and
+
 ## [0.1.3](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.2...e_midi_shared-v0.1.3) - 2025-06-27
 
 ### Added

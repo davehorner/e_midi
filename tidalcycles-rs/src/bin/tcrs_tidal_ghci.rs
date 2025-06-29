@@ -1,5 +1,5 @@
-use tokio::process::Command;
 use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -10,7 +10,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let ghci = ghci_path.unwrap();
     let mut child = Command::new(&ghci)
-        .args(&["-package", "tidal","-XOverloadedStrings"])
+        .args(&["-package", "tidal", "-XOverloadedStrings"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
@@ -41,24 +41,29 @@ async fn main() -> anyhow::Result<()> {
         // Wait for Tidal to finish booting
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         // Now send your pattern
-        stdin.write_all(b"d1 $ sound \"bd sn cp*2 [~ bd/2]\"\n").await?;
+        stdin
+            .write_all(b"d1 $ sound \"bd sn cp*2 [~ bd/2]\"\n")
+            .await?;
         stdin.flush().await?;
-            // Wait longer for Tidal to finish booting
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    // Now send your pattern
-    stdin.write_all(b"d1 $ sound \"bd sn cp*2 [~ bd/3]\"\n").await?;
-    stdin.flush().await?;
+        // Wait longer for Tidal to finish booting
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        // Now send your pattern
+        stdin
+            .write_all(b"d1 $ sound \"bd sn cp*2 [~ bd/3]\"\n")
+            .await?;
+        stdin.flush().await?;
 
-    // Example: send a new pattern after 8 seconds
-    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-    stdin.write_all(b"d1 $ sound \"cp future*4\"\n").await?;
-    stdin.flush().await?;
-    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+        // Example: send a new pattern after 8 seconds
+        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+        stdin.write_all(b"d1 $ sound \"cp future*4\"\n").await?;
+        stdin.flush().await?;
+        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
 
-    stdin.write_all(b"d1 $ sound \"bd*2 [[~ lt] sn:3] lt:1 [ht mt*2]\"\n").await?;
-    stdin.flush().await?;
-    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-    
+        stdin
+            .write_all(b"d1 $ sound \"bd*2 [[~ lt] sn:3] lt:1 [ht mt*2]\"\n")
+            .await?;
+        stdin.flush().await?;
+        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
     }
 
     // Keep the process running until Ctrl+C or until ghci exits

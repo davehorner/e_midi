@@ -1,6 +1,6 @@
-﻿25/06/28|baf8166|0.1.8
-## [0.1.8](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.7...e_midi-v0.1.8) - 2025-06-28
+﻿25/06/29|5fba54e|0.1.9
+## [0.1.9](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.8...e_midi-v0.1.9) - 2025-06-29
 
 ### Added
 
-- Added initial integration with [`tidalcycles-rs`](https://github.com/davehorner/e_midi/tree/develop/tidalcycles-rs) for pattern-based MIDI sequencing and experimental live coding support. This enables advanced rhythmic and melodic pattern playback alongside standard MIDI features.
+- *(sc3-plugins)* support for automated sc3-plugin installation and

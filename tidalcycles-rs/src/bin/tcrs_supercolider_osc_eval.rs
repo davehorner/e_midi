@@ -18,12 +18,10 @@ fn main() {
         Out.ar(0, (snare + bdrum + hihat) * 0.4 * env ! 2)
     }.play; // This synth will stop itself after 4 seconds
     "#;
-    let auto_stop_packet = rosc::encoder::encode(&rosc::OscPacket::Message(
-        rosc::OscMessage {
-            addr: "/eval".to_string(),
-            args: vec![rosc::OscType::String(auto_stop_code.to_string())],
-        },
-    ))
+    let auto_stop_packet = rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
+        addr: "/eval".to_string(),
+        args: vec![rosc::OscType::String(auto_stop_code.to_string())],
+    }))
     .unwrap();
     let osc_addr = "127.0.0.1:57120";
     let sock = UdpSocket::bind("0.0.0.0:0").expect("bind");
@@ -35,12 +33,10 @@ fn main() {
 
     // Compose OSC message to /eval with arbitrary code (manual stop example)
     let code = "s = { SinOsc.ar(SinOsc.kr([1, 3]).exprange(100, 2e3), 0, 0.2) }.play;";
-    let osc_packet = rosc::encoder::encode(&rosc::OscPacket::Message(
-        rosc::OscMessage {
-            addr: "/eval".to_string(),
-            args: vec![rosc::OscType::String(code.to_string())],
-        },
-    ))
+    let osc_packet = rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
+        addr: "/eval".to_string(),
+        args: vec![rosc::OscType::String(code.to_string())],
+    }))
     .unwrap();
     println!("Sending /eval OSC message to SuperCollider (manual stop example):");
     println!("{}", code);
@@ -49,12 +45,10 @@ fn main() {
     sleep(Duration::from_secs(10));
     // Send another OSC message to stop all sound
     let stop_code = "s.free;";
-    let stop_packet = rosc::encoder::encode(&rosc::OscPacket::Message(
-        rosc::OscMessage {
-            addr: "/eval".to_string(),
-            args: vec![rosc::OscType::String(stop_code.to_string())],
-        },
-    ))
+    let stop_packet = rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
+        addr: "/eval".to_string(),
+        args: vec![rosc::OscType::String(stop_code.to_string())],
+    }))
     .unwrap();
     sock.send_to(&stop_packet, osc_addr).unwrap();
     println!("Sent stop command to SuperCollider.");

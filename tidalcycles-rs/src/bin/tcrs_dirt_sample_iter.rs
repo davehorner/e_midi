@@ -22,7 +22,9 @@ fn main() {
         return;
     }
 
-    println!("Would you like to play only the first sample in each bank, or all samples in all banks?");
+    println!(
+        "Would you like to play only the first sample in each bank, or all samples in all banks?"
+    );
     println!("Enter 1 for first sample only, 2 for all samples:");
     print!("> ");
     io::stdout().flush().unwrap();
@@ -38,9 +40,12 @@ fn main() {
         // Play all samples in all banks
         for (bank, files) in &dirt_map.bank_to_files {
             for (idx, file) in files.iter().enumerate() {
-                println!("Triggering SuperDirt: bank='{}', index={}, file={}", bank, idx, file);
-                let osc_packet = rosc::encoder::encode(&rosc::OscPacket::Message(
-                    rosc::OscMessage {
+                println!(
+                    "Triggering SuperDirt: bank='{}', index={}, file={}",
+                    bank, idx, file
+                );
+                let osc_packet =
+                    rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
                         addr: "/dirt/play".to_string(),
                         args: vec![
                             rosc::OscType::String("s".to_string()),
@@ -50,9 +55,8 @@ fn main() {
                             rosc::OscType::String("orbit".to_string()),
                             rosc::OscType::Int(0),
                         ],
-                    },
-                ))
-                .unwrap();
+                    }))
+                    .unwrap();
                 sock.send_to(&osc_packet, osc_addr).unwrap();
                 sleep(Duration::from_millis(800));
             }
@@ -61,9 +65,12 @@ fn main() {
         // Play only the first sample in each bank
         for (bank, files) in &dirt_map.bank_to_files {
             if !files.is_empty() {
-                println!("Triggering SuperDirt: bank='{}', index=0, file={}", bank, files[0]);
-                let osc_packet = rosc::encoder::encode(&rosc::OscPacket::Message(
-                    rosc::OscMessage {
+                println!(
+                    "Triggering SuperDirt: bank='{}', index=0, file={}",
+                    bank, files[0]
+                );
+                let osc_packet =
+                    rosc::encoder::encode(&rosc::OscPacket::Message(rosc::OscMessage {
                         addr: "/dirt/play".to_string(),
                         args: vec![
                             rosc::OscType::String("s".to_string()),
@@ -73,9 +80,8 @@ fn main() {
                             rosc::OscType::String("orbit".to_string()),
                             rosc::OscType::Int(0),
                         ],
-                    },
-                ))
-                .unwrap();
+                    }))
+                    .unwrap();
                 sock.send_to(&osc_packet, osc_addr).unwrap();
                 sleep(Duration::from_millis(800));
             }

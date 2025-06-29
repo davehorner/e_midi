@@ -6,7 +6,9 @@ fn main() -> io::Result<()> {
     let addr = "127.0.0.1:57126"; // Use our custom OSC Tidal server port
     let socket = UdpSocket::bind("0.0.0.0:0")?;
 
-    println!("TidalCycles OSC interactive shell (custom OSC server on 57126). Type 'quit' to exit.");
+    println!(
+        "TidalCycles OSC interactive shell (custom OSC server on 57126). Type 'quit' to exit."
+    );
     println!("Type any TidalCycles code or pattern (e.g. d1 $ s \"bd sn\"), or a command like hush, and press Enter.");
     println!("Your input will be sent exactly as typed to the OSC server.");
 

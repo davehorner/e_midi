@@ -18,6 +18,7 @@ pub enum SongType {
     Mp4,
     Webm,
     YouTube,
+    TidalCycles, // New variant for .tidal files
     Other,
 }
 
@@ -33,6 +34,7 @@ pub enum SongSource {
         start: Option<u64>,
         end: Option<u64>,
     },
+    EmbeddedTidalCycles(&'static str), // New variant for embedded .tidal files
     FilePath(&'static str),
     None,
 }

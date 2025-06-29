@@ -559,7 +559,7 @@ impl MidiPlayer {
                         "[IPC DEBUG] Publishing MidiNoteOn: channel={}, pitch={}, velocity={}",
                         channel, pitch, velocity
                     );
-                    let res = e_midi_shared::ipc::IpcServiceManager::publish_ipc_event(event);
+                    let _ = e_midi_shared::ipc::IpcServiceManager::publish_ipc_event(event);
                     // if let Err(e) = res {
                     //     eprintln!("[IPC ERROR] Failed to publish MidiNoteOn: {}", e);
                     // }
@@ -632,7 +632,7 @@ impl MidiPlayer {
                     if let (Some(idx), Some(mut conn)) = (song_index, conn_opt.take()) {
                         let static_count = core_state.static_songs.len();
                         // --- PATCH: Always play all tracks if tracks is None ---
-                        let (song, is_static) = if idx < static_count {
+                        let (song, _is_static) = if idx < static_count {
                             (&core_state.static_songs[idx], true)
                         } else {
                             let dyn_idx = idx - static_count;
@@ -1694,7 +1694,7 @@ impl MidiPlayer {
         } else if ext == "xml" || ext == "musicxml" {
             // Try to parse as MusicXML
             match musicxml::read_score_partwise(&path.to_string_lossy()) {
-                Ok(score) => {
+                Ok(_score) => {
                     // Use the same extraction logic as embed_musicxml.rs
                     let xml_song = e_midi_shared::embed_musicxml::extract_musicxml_songs(
                         path.parent().unwrap_or_else(|| std::path::Path::new(".")),
@@ -2289,7 +2289,7 @@ impl MidiPlayer {
             if should_next.load(Ordering::SeqCst) {
                 println!("⏭️  Skipping to next song...");
                 // Send all notes off before moving to next
-                for channel in 0..16 {
+                for _channel in 0..16 {
                     self.send_midi_command(MidiCommand::AllNotesOff)?;
                 }
                 return Ok(true);
@@ -2689,11 +2689,6 @@ impl MidiPlayer {
             if real_elapsed / 100 != last_print_time / 100 {
                 let progress_seconds = real_elapsed / 1000;
                 let total_seconds = max_duration_ms / 1000;
-            }
-            // Print time progress every 100ms
-            if real_elapsed / 100 != last_print_time / 100 {
-                let progress_seconds = real_elapsed / 1000;
-                let total_seconds = max_duration_ms / 1000;
                 let progress_percentage =
                     (real_elapsed as f32 / max_duration_ms as f32 * 100.0) as u32;
                 print!(
@@ -2773,7 +2768,7 @@ impl MidiPlayer {
                 {
                     // Try to parse as MusicXML
                     match musicxml::read_score_partwise(&path.to_string_lossy()) {
-                        Ok(score) => {
+                        Ok(_score) => {
                             // Use the same extraction logic as embed_musicxml.rs
                             let xml_song = e_midi_shared::embed_musicxml::extract_musicxml_songs(
                                 path.parent().unwrap_or_else(|| std::path::Path::new(".")),
@@ -2826,6 +2821,7 @@ impl MidiPlayer {
     }
 
     /// Process IPC commands from TUI and execute them
+    #[allow(dead_code)]
     fn run_ipc_command_loop(
         &mut self,
         mut subscriber: crate::ipc::EventSubscriber,
@@ -2916,22 +2912,15 @@ impl MidiPlayer {
                 return Err("No song index provided and no previous song to resume".into());
             }
         };
-        let is_resume = position_ms.is_some()
-            || (Some(idx) == self.current_song_index
-                && (self.elapsed_ms.is_some() || self.current_tick.is_some()));
+        // let is_resume = position_ms.is_some()
+        //     || (Some(idx) == self.current_song_index
+        //         && (self.elapsed_ms.is_some() || self.current_tick.is_some()));
         // Always clear resume state before starting new playback
         self.elapsed_ms = None;
         self.current_tick = None;
         self.current_song_index = None;
         // Ensure MIDI device is reset before playback
         let _ = self.send_midi_command(MidiCommand::AllNotesOff);
-        // Set channel volume (CC#7) and expression (CC#11) to max (127) for all channels before playback
-        for channel in 0..16 {
-            || {
-                (Some(idx) == self.current_song_index
-                    && (self.elapsed_ms.is_some() || self.current_tick.is_some()))
-            };
-        }
         // Always clear resume state before starting new playback
         self.elapsed_ms = None;
         self.current_tick = None;
@@ -2953,7 +2942,7 @@ impl MidiPlayer {
         println!("[DIAG][resume] play_song_resume_aware called: song_index={:?}, position_ms={:?}, tracks={:?}, tempo_bpm={:?}, current_song_index={:?}, elapsed_ms={:?}, current_tick={:?}, is_playing={}",
             song_index, position_ms, tracks, tempo_bpm, self.current_song_index, self.elapsed_ms, self.current_tick, self.is_playing());
         // Always treat as a new play unless position_ms is Some (explicit resume)
-        let is_resume = position_ms.is_some();
+        // let is_resume = position_ms.is_some();
         if idx >= self.get_total_song_count() {
             println!("[DIAG][resume] Invalid song index: {}", idx);
             return Err("Invalid song index".into());
@@ -3122,13 +3111,11 @@ impl MidiPlayer {
         let midi_sender = self.midi_sender.clone();
         let stop_flag = Arc::clone(&self.playback_stop_flag);
         let playing_state = Arc::clone(&self.is_playing);
-        let resume_state = self.elapsed_ms;
         // Spawn background thread for playback and high-precision resume
         let start_ms_clone = resume_event_time;
         println!("[DIAG][resume] Spawning background playback thread: events={}, tempo={}, start_ms_clone={}", interpolated_events.len(), tempo, start_ms_clone);
         use std::sync::mpsc;
         let (done_tx, done_rx) = mpsc::channel();
-        let midi_sender_clone = self.midi_sender.clone();
         thread::spawn(move || {
             let _ = Self::play_events_in_background_with_tick(
                 interpolated_events,
@@ -3313,12 +3300,12 @@ impl MidiPlayer {
     }
 
     /// Play embedded audio data (OGG/MP3/MP4) from static bytes
-    pub fn play_embedded_audio(data: &'static [u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn play_embedded_audio(_data: &'static [u8]) -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(feature = "uses_rodio")]
         {
             let (_stream, stream_handle) = OutputStream::try_default()?;
             let sink = Sink::try_new(&stream_handle)?;
-            let cursor = Cursor::new(data);
+            let cursor = Cursor::new(_data);
             let source = Decoder::new(cursor)?;
             sink.append(source);
             sink.sleep_until_end();
