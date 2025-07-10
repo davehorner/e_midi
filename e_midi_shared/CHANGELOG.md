@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.4...e_midi_shared-v0.1.5) - 2025-07-10
+
+### Other
+
+- *(tidalcycles)* add TidalLooper auto-install and startup.scd integration  - Introduce `supercollider_looper.rs` for managing TidalLooper installation - Add logic to clone TidalLooper into SuperCollider user Extensions dir - Dynamically write `startup.scd` to load and initialize TidalLooper with SuperDirt - Update main workflow to print and embed the looper path into SuperCollider boot - Lockfile updated with `e_midi_shared 0.1.4` and registry metadata for `e_grid`
+
 ## [0.1.4](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.3...e_midi_shared-v0.1.4) - 2025-06-29
 
 ### Added
