@@ -1,6 +1,6 @@
-﻿25/06/29|5fba54e|0.1.9
-## [0.1.9](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.8...e_midi-v0.1.9) - 2025-06-29
+﻿25/07/10|fbc490a|0.1.11
+## [0.1.11](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.10...e_midi-v0.1.11) - 2025-07-10
 
-### Added
+### Fixed
 
-- *(sc3-plugins)* support for automated sc3-plugin installation and
+- *(dynamic)* all tracks selected; scan-directory is recursive now.
