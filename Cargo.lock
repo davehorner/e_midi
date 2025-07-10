@@ -846,7 +846,7 @@ dependencies = [
 
 [[package]]
 name = "e_midi"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "ansi_term",
  "clap",
@@ -855,7 +855,7 @@ dependencies = [
  "ctrlc",
  "dashmap",
  "e_grid",
- "e_midi_shared 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "e_midi_shared 0.1.4",
  "glib 0.20.12",
  "gstreamer",
  "gstreamer-player",
@@ -877,6 +877,22 @@ dependencies = [
 [[package]]
 name = "e_midi_shared"
 version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56527c1d173bc7620739d5eeeda1504c7d7eff1303c5d65b18f0c0494502bdb0"
+dependencies = [
+ "iceoryx2",
+ "midly",
+ "musicxml",
+ "once_cell",
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "which 8.0.0",
+]
+
+[[package]]
+name = "e_midi_shared"
+version = "0.1.5"
 dependencies = [
  "glib 0.20.12",
  "gstreamer",
@@ -887,22 +903,6 @@ dependencies = [
  "once_cell",
  "quick-xml",
  "rodio",
- "serde",
- "serde_json",
- "which 8.0.0",
-]
-
-[[package]]
-name = "e_midi_shared"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56527c1d173bc7620739d5eeeda1504c7d7eff1303c5d65b18f0c0494502bdb0"
-dependencies = [
- "iceoryx2",
- "midly",
- "musicxml",
- "once_cell",
- "quick-xml",
  "serde",
  "serde_json",
  "which 8.0.0",
