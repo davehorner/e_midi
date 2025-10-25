@@ -1,10 +1,9 @@
 //! Publisher module for sending events via iceoryx2
 //!
 //! Provides lock-free, zero-copy publishing of events to subscribers
-
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::prelude::*;
-use iceoryx2::service::ipc::Service;
+// use iceoryx2::service::ipc::Service;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -14,7 +13,7 @@ use super::{serialize_to_payload, AppId, Event, IpcError, IpcPayload, IpcResult}
 ///
 #[derive(Debug)]
 pub struct EventPublisher {
-    publisher: Publisher<Service, IpcPayload, ()>,
+    publisher: Publisher<ipc::Service, IpcPayload, ()>,
     app_id: AppId,
     is_active: Arc<AtomicBool>,
 }
@@ -29,7 +28,7 @@ impl EventPublisher {
         );
 
         // Create node (suppress debug output)
-        let node = NodeBuilder::new().create::<Service>().map_err(|e| {
+        let node = NodeBuilder::new().create::<ipc::Service>().map_err(|e| {
             eprintln!("[IPC PUBLISHER ERROR] Node creation failed: {:?}", e);
             IpcError::NodeCreation(format!("Node creation failed"))
         })?;

@@ -357,8 +357,6 @@ fn main() {
     writeln!(out, "    let ticks_per_q = song_data.ticks_per_q;").unwrap();
     writeln!(out, "    let mut events = Vec::new();").unwrap();
     writeln!(out, "    let track_notes = song_data.track_notes;").unwrap();
-    writeln!(out, "    let mut debug_count = 0;").unwrap();
-    writeln!(out, "    let tempo_usec_per_q = 60_000_000 / tempo_bpm;").unwrap();
     writeln!(out, "    for &track_idx in track_indices {{").unwrap();
     writeln!(
         out,

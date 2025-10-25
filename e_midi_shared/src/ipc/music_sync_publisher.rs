@@ -4,7 +4,7 @@
 
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::prelude::*;
-use iceoryx2::service::ipc::Service;
+// use iceoryx2::service::ipc::Service;
 use std::sync::Arc;
 
 use crate::ipc_protocol::PlaySongAtHeartbeat;
@@ -13,14 +13,14 @@ use super::music_sync_subscriber::E_MIDI_MUSIC_SYNC_SERVICE;
 
 #[derive(Debug)]
 pub struct MusicSyncPublisher {
-    publisher: Publisher<Service, PlaySongAtHeartbeat, ()>,
+    publisher: Publisher<ipc::Service, PlaySongAtHeartbeat, ()>,
 }
 
 impl MusicSyncPublisher {
     /// Create a new music sync publisher
     pub fn new() -> Result<Self, String> {
         let node = NodeBuilder::new()
-            .create::<Service>()
+            .create::<ipc::Service>()
             .map_err(|e| format!("Node creation failed: {e:?}"))?;
         let service = node
             .service_builder(

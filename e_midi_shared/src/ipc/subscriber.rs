@@ -1,10 +1,8 @@
 //! Subscriber module for receiving events via iceoryx2
 //!
 //! Provides lock-free, zero-copy subscription to events from publishers
-
-use iceoryx2::port::subscriber::Subscriber;
 use iceoryx2::prelude::*;
-use iceoryx2::service::ipc::Service;
+use iceoryx2::port::subscriber::Subscriber;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -16,7 +14,7 @@ use super::{AppId, Event, IpcError, IpcPayload, IpcResult};
 ///
 #[derive(Debug)]
 pub struct EventSubscriber {
-    subscriber: Subscriber<Service, IpcPayload, ()>,
+    subscriber: Subscriber<ipc::Service, IpcPayload, ()>,
     app_id: AppId,
     is_active: Arc<AtomicBool>,
     event_buffer: VecDeque<Event>,
@@ -30,14 +28,14 @@ impl EventSubscriber {
         println!("[IPC SUBSCRIBER DEBUG] Using service name: {} (source_app: {:?}, subscriber_app: {:?})", service_name, source_app, subscriber_app);
 
         // Create node (suppress debug output)
-        let node = NodeBuilder::new().create::<Service>().map_err(|e| {
+        let node = NodeBuilder::new().create::<ipc::Service>().map_err(|e| {
             eprintln!("[IPC SUBSCRIBER ERROR] Node creation failed: {:?}", e);
             IpcError::NodeCreation(format!("Node creation failed"))
         })?;
 
         // Try to open existing service first, if that fails, return error (do not create)
         let service = match node
-            .service_builder(&ServiceName::new(&service_name).map_err(|e| {
+            .service_builder(&service_name.as_str().try_into().map_err(|e| {
                 eprintln!("[IPC SUBSCRIBER ERROR] Invalid service name: {:?}", e);
                 IpcError::ServiceCreation(format!("Invalid service name"))
             })?)
@@ -159,7 +157,7 @@ impl EventSubscriber {
     }
 }
 
-impl Drop for EventSubscriber {
+impl<'a> Drop for EventSubscriber {
     fn drop(&mut self) {
         self.deactivate();
     }

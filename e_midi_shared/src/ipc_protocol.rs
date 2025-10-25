@@ -4,8 +4,8 @@
 //! for robust, synchronized, multi-client MIDI playback.
 //!
 //! All structs are #[repr(C)] and use only fixed-size, ABI-stable types.
+use iceoryx2::prelude::*;
 
-use iceoryx2::prelude::ZeroCopySend;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ZeroCopySend)]
 pub struct MidiNoteEvent {

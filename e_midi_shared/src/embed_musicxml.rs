@@ -346,13 +346,13 @@ pub fn extract_part_list_mapping(xml_path: &Path) -> HashMap<String, (String, u8
                 }
                 b"part-name" if in_score_part => {
                     if let Ok(Event::Text(t)) = reader.read_event_into(&mut buf) {
-                        let name = t.unescape().unwrap_or_default();
+                        let name = t.escape_ascii().to_string();
                         current_name = Some(name.trim().to_string());
                     }
                 }
                 b"virtual-name" if in_score_part => {
                     if let Ok(Event::Text(t)) = reader.read_event_into(&mut buf) {
-                        let vname = t.unescape().unwrap_or_default();
+                        let vname = t.escape_ascii().to_string();
                         current_virtual_name = Some(vname.trim().to_string());
                     }
                 }

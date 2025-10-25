@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.11...e_midi-v0.1.12) - 2025-10-25
+
+### Other
+
+- update deps
+
+## [0.1.11](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.10...e_midi-v0.1.11) - 2025-07-10
+
+### Fixed
+
+- *(dynamic)* all tracks selected; scan-directory is recursive now.
+
 ## [0.1.10](https://github.com/davehorner/e_midi/compare/e_midi-v0.1.9...e_midi-v0.1.10) - 2025-06-29
 
 ### Other
