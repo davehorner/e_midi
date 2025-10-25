@@ -10,7 +10,7 @@ homepage = "https://github.com/davehorner/e_midi/"
 repository = "https://github.com/davehorner/e_midi/"
 keywords = ["midi", "music", "audio", "player", "interactive"]
 categories = ["multimedia::audio", "command-line-utilities"]
-rust-version = "1.70"
+rust-version = "1.75"
 
 [features]
 default = []
