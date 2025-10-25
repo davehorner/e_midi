@@ -864,7 +864,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -895,6 +895,8 @@ dependencies = [
 [[package]]
 name = "e_grid"
 version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a113bba599421d1f0463410e9980e2209e6ae71f99eb8754cd365a299106f28f"
 dependencies = [
  "atomic",
  "crossbeam-queue",
@@ -927,7 +929,7 @@ dependencies = [
  "ctrlc",
  "dashmap",
  "e_grid",
- "e_midi_shared",
+ "e_midi_shared 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "glib 0.20.12",
  "gstreamer",
  "gstreamer-player",
@@ -960,6 +962,23 @@ dependencies = [
  "once_cell",
  "quick-xml",
  "rodio",
+ "serde",
+ "serde_json",
+ "which 8.0.0",
+]
+
+[[package]]
+name = "e_midi_shared"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a25415d0a63e5f8671ddd57fb0900a6090a1424e23d4a68f5a8058d587422c2c"
+dependencies = [
+ "iceoryx2 0.7.0",
+ "iceoryx2-ffi",
+ "midly",
+ "musicxml",
+ "once_cell",
+ "quick-xml",
  "serde",
  "serde_json",
  "which 8.0.0",
@@ -1063,7 +1082,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3111,7 +3130,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3559,7 +3578,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4018,7 +4037,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
