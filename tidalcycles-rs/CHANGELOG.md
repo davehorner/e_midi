@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/davehorner/e_midi/compare/tidalcycles-rs-v0.1.4...tidalcycles-rs-v0.1.5) - 2025-10-26
+
+### Added
+
+- *(force-opt)* prevent duplicate instances; add -f/--force killer for GHCi; harden port freeing on Windows
+
 ## [0.1.4](https://github.com/davehorner/e_midi/compare/tidalcycles-rs-v0.1.3...tidalcycles-rs-v0.1.4) - 2025-10-26
 
 ### Added

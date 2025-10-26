@@ -1,3 +1,4 @@
+// ...existing code...
 mod install;
 
 use crate::install::ensure_ghcup_installed;
@@ -18,6 +19,87 @@ use tokio::process::Command as TokioCommand;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Parse CLI arguments for -f/--force
+    let mut force_kill = false;
+    for arg in std::env::args().skip(1) {
+        if arg == "-f" || arg == "--force" {
+            force_kill = true;
+        }
+    }
+    // Check if a GHCi process is already running (indicating TidalCycles backend is likely running)
+    #[cfg(windows)]
+    {
+        use std::ffi::OsStr;
+        use sysinfo::{Signal, System};
+        let mut system = System::new_all();
+        system.refresh_all();
+        let mut ghci_found = false;
+        for process in system.processes_by_name(OsStr::new("ghci.exe")) {
+            // Try to be more selective: check command line for port 57120 or BootTidal.hs
+            let cmdline: String = process
+                .cmd()
+                .iter()
+                .filter_map(|s| s.to_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_ascii_lowercase();
+            if cmdline.contains("57120") || cmdline.contains("boottidal.hs") {
+                ghci_found = true;
+                if force_kill {
+                    eprintln!(
+                        "Killing likely TidalCycles GHCi process with PID {}...",
+                        process.pid()
+                    );
+                    let _ = process.kill_with(Signal::Kill);
+                    // Fallback: use taskkill in case sysinfo fails
+                    let pid_str = process.pid().to_string();
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/PID", &pid_str, "/F"])
+                        .output();
+                }
+            }
+        }
+        if ghci_found && !force_kill {
+            eprintln!("A GHCi process (likely TidalCycles) is already running. Use -f or --force to kill it.");
+            std::process::exit(100);
+        }
+        if ghci_found && force_kill {
+            // Give the OS a moment to release the process
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::ffi::OsStr;
+        use sysinfo::{Signal, System};
+        let mut system = System::new_all();
+        system.refresh_all();
+        let mut ghci_found = false;
+        for process in system.processes_by_name(OsStr::new("ghci")) {
+            ghci_found = true;
+            if force_kill {
+                eprintln!("Killing GHCi process with PID {}...", process.pid());
+                let _ = process.kill_with(Signal::Kill);
+            }
+        }
+        if ghci_found && !force_kill {
+            eprintln!("A GHCi process is already running. TidalCycles backend may already be active. Use -f or --force to kill it.");
+            std::process::exit(100);
+        }
+        if ghci_found && force_kill {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+    // Check if the main OSC UDP port is already in use (indicating another instance is running)
+    const MAIN_OSC_PORT: u16 = 57126;
+    let osc_port_in_use = std::net::UdpSocket::bind(("127.0.0.1", MAIN_OSC_PORT)).is_err();
+    if osc_port_in_use {
+        eprintln!(
+            "Another instance of tidalcycles-rs is already running (port {} in use).",
+            MAIN_OSC_PORT
+        );
+        std::process::exit(100);
+    }
     // Track all spawned child processes
     let children: Arc<Mutex<Vec<tokio::process::Child>>> = Arc::new(Mutex::new(Vec::new()));
     let children_for_ctrlc = children.clone();
@@ -222,7 +304,8 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(windows)]
     {
         let mut success = false;
-        for _ in 0..5 {
+        let mut last_pid: Option<u32> = None;
+        for attempt in 0..7 {
             // Run: netstat -ano | findstr :57120
             let output = Command::new("cmd")
                 .args(["/C", "netstat -ano | findstr :57120"])
@@ -235,11 +318,39 @@ async fn main() -> anyhow::Result<()> {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if let Some(pid_str) = parts.last() {
                     if let Ok(pid) = pid_str.parse::<u32>() {
-                        println!("Killing process with PID {} using port 57120...", pid);
+                        last_pid = Some(pid);
+                        println!(
+                            "Killing process with PID {} using port 57120... (attempt {})",
+                            pid,
+                            attempt + 1
+                        );
+                        // Use /T to kill child processes too, and /F for force
                         let _ = Command::new("taskkill")
-                            .args(["/PID", &pid.to_string(), "/F"])
+                            .args(["/PID", &pid.to_string(), "/T", "/F"])
                             .output();
                         killed = true;
+                    }
+                }
+            }
+            // Also kill any running tidalcycles-rs processes (except self)
+            let self_pid = std::process::id();
+            let tasklist = Command::new("tasklist").output().unwrap();
+            let tasklist_str = String::from_utf8_lossy(&tasklist.stdout);
+            for line in tasklist_str.lines() {
+                if line.to_ascii_lowercase().contains("tidalcycles-rs.exe") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() > 1 {
+                        if let Ok(pid) = parts[1].parse::<u32>() {
+                            if pid != self_pid {
+                                println!(
+                                    "Killing other tidalcycles-rs.exe process with PID {}...",
+                                    pid
+                                );
+                                let _ = Command::new("taskkill")
+                                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                                    .output();
+                            }
+                        }
                     }
                 }
             }
@@ -252,16 +363,30 @@ async fn main() -> anyhow::Result<()> {
                 Err(_) => {
                     if killed {
                         println!("Waiting for port 57120 to be released...");
-                        std::thread::sleep(Duration::from_secs(1));
+                        std::thread::sleep(Duration::from_millis(700 + attempt * 300));
                     } else {
                         println!("Port 57120 is still in use, but no process found to kill.");
-                        std::thread::sleep(Duration::from_secs(1));
+                        std::thread::sleep(Duration::from_millis(700 + attempt * 300));
                     }
                 }
             }
         }
+        // Final attempt: if still not free, try to kill the last seen PID again
         if !success {
-            eprintln!("Could not free up port 57120 after several attempts. Exiting.");
+            if let Some(pid) = last_pid {
+                println!("Final force kill attempt for PID {}...", pid);
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .output();
+                std::thread::sleep(Duration::from_secs(2));
+                // Try one last time
+                if StdUdpSocket::bind("0.0.0.0:57120").is_ok() {
+                    success = true;
+                }
+            }
+        }
+        if !success {
+            eprintln!("Could not free up port 57120 after several forceful attempts. You may need to reboot or kill the process manually.");
             std::process::exit(1);
         }
     }

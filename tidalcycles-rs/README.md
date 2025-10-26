@@ -74,6 +74,7 @@ The `tidalcycles-rs` binary automatically starts SuperCollider with SuperDirt an
 
 This crate provides several example and utility binaries for interacting with TidalCycles and SuperDirt:
 
+- **tcrs_dirt_dl.rs**: Pattern-based SuperDirt sample and single-cycle waveform installer/remover. Installs/removes uxn-st "dirt" folders (11_st*, 22_st*) to Dirt-Samples and akwf_* single-cycle waveforms to downloaded-quarks/akwf. Useful for quickly setting up or cleaning up custom sample sets for SuperDirt.
 - **tcrs_dirt_osc.rs**: Minimal example that sends alternating OSC messages to SuperDirt, triggering the built-in "bd" and "sn" samples directly via `/dirt/play`.
 - **tcrs_dirt_sample_iter.rs**: Scans your Dirt-Samples directory, iterates over all sample banks, and plays either the first or all samples in each bank via OSC to SuperDirt. Useful for exploring available samples.
 - **tcrs_interactive_tidal.rs**: Interactive command-line shell for sending arbitrary TidalCycles code or commands (e.g. `d1 $ s "bd sn"`, `hush`) to the custom OSC Tidal server (port 57126). Sends your input exactly as typed.
@@ -81,14 +82,13 @@ This crate provides several example and utility binaries for interacting with Ti
 - **tcrs_supercolider_osc_eval.rs**: Sends arbitrary SuperCollider code to SuperDirt's `/eval` OSC handler, allowing you to trigger synths, play patterns, or evaluate code remotely.
 - **tcrs_tidal_ghci.rs**: Demonstrates how to launch a TidalCycles GHCi session from Rust, inject boot code, and set up pattern aliases programmatically.
 
-Each binary is self-contained and can be run with:
+The above binaries are installed with the crate, install the crate, and give them a try.
 
 ```sh
-cargo run --bin <binary_name>
+tidalcycles-rs -f
 ```
 
-See the source of each file in `src/bin/` for more details and usage examples.
-
+Will forcefully kill and start the server.  If you run with no arguments and it is already running, it will return 100 exit code and print a message.
 
 ## Troubleshooting
 - If `ghci` or `tidal` is not found, ensure GHC and TidalCycles are installed and in your PATH.
