@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6](https://github.com/davehorner/e_midi/compare/tidalcycles-rs-v0.1.5...tidalcycles-rs-v0.1.6) - 2025-10-26
+
+### Added
+
+- *(spawn-opt)* add --spawn flag to launch tidalcycles-rs in background
+
 ## [0.1.5](https://github.com/davehorner/e_midi/compare/tidalcycles-rs-v0.1.4...tidalcycles-rs-v0.1.5) - 2025-10-26
 
 ### Added

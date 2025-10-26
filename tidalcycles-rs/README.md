@@ -90,6 +90,14 @@ tidalcycles-rs -f
 
 Will forcefully kill and start the server.  If you run with no arguments and it is already running, it will return 100 exit code and print a message.
 
+You can use the `--spawn` flag to launch `tidalcycles-rs` in the background (no console window on Windows, detached on Unix):
+
+```sh
+tidalcycles-rs --spawn
+```
+
+This is useful for running the server as a background process. All singleton/force-kill logic still runs before spawning.
+
 ## Troubleshooting
 - If `ghci` or `tidal` is not found, ensure GHC and TidalCycles are installed and in your PATH.
 - For more help, see the [TidalCycles documentation](https://tidalcycles.org/) and [SuperDirt README](https://github.com/musikinformatik/SuperDirt).

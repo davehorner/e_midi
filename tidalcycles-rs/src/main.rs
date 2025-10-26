@@ -19,11 +19,17 @@ use tokio::process::Command as TokioCommand;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Parse CLI arguments for -f/--force
+    // Parse CLI arguments for -f/--force and --spawn
     let mut force_kill = false;
+    let mut spawn_mode = false;
+    let mut filtered_args = Vec::new();
     for arg in std::env::args().skip(1) {
         if arg == "-f" || arg == "--force" {
             force_kill = true;
+        } else if arg == "--spawn" {
+            spawn_mode = true;
+        } else {
+            filtered_args.push(arg);
         }
     }
     // Check if a GHCi process is already running (indicating TidalCycles backend is likely running)
@@ -100,6 +106,34 @@ async fn main() -> anyhow::Result<()> {
         );
         std::process::exit(100);
     }
+
+    // ...singleton/process checks and force kill logic above...
+    // Only spawn in background if we reach this point (no early exit)
+    if spawn_mode {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            use std::process::Command;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            let exe_path = std::env::current_exe().expect("Failed to get current exe");
+            let mut cmd = Command::new(&exe_path);
+            cmd.args(&filtered_args);
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            let _ = cmd.spawn();
+        }
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+            let exe = std::env::current_exe().expect("Failed to get current exe");
+            let mut cmd = Command::new("nohup");
+            let mut args = vec![exe.to_string_lossy().to_string()];
+            args.extend(filtered_args.iter().cloned());
+            let _ = cmd.args(&args).arg("&").spawn();
+        }
+        println!("Spawned in background. Exiting foreground process.");
+        std::process::exit(0);
+    }
+
     // Track all spawned child processes
     let children: Arc<Mutex<Vec<tokio::process::Child>>> = Arc::new(Mutex::new(Vec::new()));
     let children_for_ctrlc = children.clone();
