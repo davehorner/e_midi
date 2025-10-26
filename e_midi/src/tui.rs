@@ -44,7 +44,7 @@ pub struct PlaybackInfo {
     pub current_time: Arc<AtomicU32>,
     pub total_time: u32,
     pub tempo: Arc<AtomicU32>,
-    pub tracks: Vec<String>,
+    // pub tracks: Vec<String>, // removed unused field
     pub track_count: usize,
 }
 
@@ -122,9 +122,10 @@ impl TuiApp {
         }
     }
 
+    #[allow(dead_code)]
     pub fn init_command_subscriber(&mut self) -> Result<(), Box<dyn Error>> {
         match EventSubscriber::new(AppId::EMidi, AppId::EMidi) {
-            Ok(subscriber) => {
+            Ok(_subscriber) => {
                 // We'll use this to subscribe to our own published commands
                 // This enables the IPC demonstration while keeping everything in-process
                 Ok(())
@@ -221,7 +222,7 @@ pub fn run_tui_mode(midi_player: &mut MidiPlayer) -> Result<(), Box<dyn Error>> 
     let _ = midi_player.init_ipc_publisher();
 
     // Initialize event subscriber for receiving status updates
-    if let Err(_) = app.init_event_subscriber() {
+    if app.init_event_subscriber().is_err() {
         app.add_log(
             "⚠️ IPC subscriber initialization failed - running without real-time updates"
                 .to_string(),
@@ -231,7 +232,7 @@ pub fn run_tui_mode(midi_player: &mut MidiPlayer) -> Result<(), Box<dyn Error>> 
     }
 
     // Initialize command publisher for sending commands
-    if let Err(_) = app.init_command_publisher() {
+    if app.init_command_publisher().is_err() {
         app.add_log("⚠️ IPC publisher initialization failed - running in local mode".to_string());
     }
 
@@ -307,16 +308,13 @@ fn run_tui_app<B: ratatui::backend::Backend>(
         }
         // Handle events with a timeout
         if event::poll(Duration::from_millis(100))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    // Only process key press events, not key release events
-                    if key.kind == crossterm::event::KeyEventKind::Press {
-                        if handle_key_event(key, app, midi_player)? {
-                            break; // Exit requested
-                        }
-                    }
+            if let Event::Key(key) = event::read()? {
+                // Only process key press events, not key release events
+                if key.kind == crossterm::event::KeyEventKind::Press
+                    && handle_key_event(key, app, midi_player)?
+                {
+                    break; // Exit requested
                 }
-                _ => {}
             }
         }
 
@@ -556,17 +554,7 @@ fn start_playback(app: &mut TuiApp, midi_player: &mut MidiPlayer) -> Result<(), 
             current_time: Arc::clone(&current_time),
             total_time: duration_ms / 1000,
             tempo: Arc::clone(&tempo),
-            tracks: song
-                .tracks
-                .iter()
-                .map(|t| {
-                    format!(
-                        "Track {} ({})",
-                        t.index,
-                        t.guess.as_ref().unwrap_or(&"Unknown".to_string())
-                    )
-                })
-                .collect(),
+            // tracks: ... removed unused field
             track_count: song.tracks.len(),
         });
         app.current_tempo = song.default_tempo;

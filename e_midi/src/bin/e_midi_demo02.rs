@@ -51,18 +51,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stderr_reader = BufReader::new(stderr);
     // Spawn a thread to print server stdout
     std::thread::spawn(move || {
-        for line in stdout_reader.lines() {
-            if let Ok(line) = line {
-                println!("[e_midi stdout] {}", line);
-            }
+        for line in stdout_reader.lines().map_while(Result::ok) {
+            println!("[e_midi stdout] {}", line);
         }
     });
     // Spawn a thread to print server stderr
     std::thread::spawn(move || {
-        for line in stderr_reader.lines() {
-            if let Ok(line) = line {
-                eprintln!("[e_midi stderr] {}", line);
-            }
+        for line in stderr_reader.lines().map_while(Result::ok) {
+            eprintln!("[e_midi stderr] {}", line);
         }
     });
     // --- Wait a moment for the server to start ---

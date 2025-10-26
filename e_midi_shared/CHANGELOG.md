@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.5...e_midi_shared-v0.1.6) - 2025-10-26
+
+### Added
+
+- *(tidalcycles-rs)* add SuperDirt installer + harden Tidal boot
+
 ## [0.1.5](https://github.com/davehorner/e_midi/compare/e_midi_shared-v0.1.4...e_midi_shared-v0.1.5) - 2025-10-25
 
 ### Other

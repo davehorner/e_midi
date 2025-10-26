@@ -13,7 +13,7 @@ pub fn ensure_tidallooper_quark_installed() -> Result<bool, String> {
     }
     println!("TidalLooper Quark not found, attempting to clone...");
     let status = Command::new("git")
-        .args(&[
+        .args([
             "clone",
             "https://github.com/thgrund/tidal-looper.git",
             looper_dir.to_str().unwrap(),
@@ -47,7 +47,7 @@ pub fn ensure_tidallooper_in_user_extensions() -> Result<bool, String> {
     std::fs::create_dir_all(&sc_user_plugins_dir)
         .map_err(|e| format!("Failed to create Extensions dir: {}", e))?;
     let status = Command::new("git")
-        .args(&[
+        .args([
             "clone",
             "https://github.com/thgrund/tidal-looper.git",
             looper_dir.to_str().unwrap(),

@@ -381,10 +381,10 @@ fn main() {
 
     // Write play_embedded_audio_bytes function for OGG/MP3/MP4
     writeln!(out, "/// Returns the embedded audio bytes for a static song index (OGG/MP3/MP4)\npub fn get_embedded_audio_bytes(song_index: usize, _song_type: &SongType) -> Option<&'static [u8]> {{
+    #[allow(clippy::match_single_binding)]
     match song_index {{
 ").unwrap();
-    let mut audio_idx = 0;
-    for entry in &song_info_entries {
+    for (audio_idx, entry) in song_info_entries.iter().enumerate() {
         // Only match OGG/MP3/MP4/WebM
         if entry.contains("SongType::Ogg") {
             writeln!(
@@ -415,7 +415,6 @@ fn main() {
             )
             .unwrap();
         }
-        audio_idx += 1;
     }
     writeln!(out, "        _ => None,").unwrap();
     writeln!(out, "    }}\n}}\n").unwrap();

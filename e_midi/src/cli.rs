@@ -251,7 +251,7 @@ pub fn run_cli() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn print_help() {
-    let _cli = Cli::parse_from(&["e_midi", "--help"]);
+    let _cli = Cli::parse_from(["e_midi", "--help"]);
 }
 
 // Helper function to validate song index

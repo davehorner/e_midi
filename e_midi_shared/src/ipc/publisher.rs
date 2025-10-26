@@ -30,13 +30,13 @@ impl EventPublisher {
         // Create node (suppress debug output)
         let node = NodeBuilder::new().create::<ipc::Service>().map_err(|e| {
             eprintln!("[IPC PUBLISHER ERROR] Node creation failed: {:?}", e);
-            IpcError::NodeCreation(format!("Node creation failed"))
+            IpcError::NodeCreation("Node creation failed".to_string())
         })?;
 
         let service = node
             .service_builder(&ServiceName::new(&service_name).map_err(|e| {
                 eprintln!("[IPC PUBLISHER ERROR] Invalid service name: {:?}", e);
-                IpcError::ServiceCreation(format!("Invalid service name"))
+                IpcError::ServiceCreation("Invalid service name".to_string())
             })?)
             .publish_subscribe::<IpcPayload>()
             .max_publishers(16)
@@ -44,12 +44,12 @@ impl EventPublisher {
             .open_or_create()
             .map_err(|e| {
                 eprintln!("[IPC PUBLISHER ERROR] Failed to create service: {:?}", e);
-                IpcError::ServiceCreation(format!("Failed to create service"))
+                IpcError::ServiceCreation("Failed to create service".to_string())
             })?;
 
         let publisher = service.publisher_builder().create().map_err(|e| {
             eprintln!("[IPC PUBLISHER ERROR] Failed to create publisher: {:?}", e);
-            IpcError::PublisherCreation(format!("Failed to create publisher"))
+            IpcError::PublisherCreation("Failed to create publisher".to_string())
         })?;
 
         Ok(Self {
@@ -95,7 +95,7 @@ impl EventPublisher {
         let payload = serialize_to_payload(&events)?;
         self.publisher
             .send_copy(payload)
-            .map_err(|_| IpcError::SendError(format!("Failed to send batch")))?;
+            .map_err(|_| IpcError::SendError("Failed to send batch".to_string()))?;
 
         Ok(())
     }

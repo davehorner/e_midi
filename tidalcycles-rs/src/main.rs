@@ -2,15 +2,18 @@ mod install;
 
 use crate::install::ensure_ghcup_installed;
 use crate::install::ensure_supercollider_installed;
-use ctrlc;
 use rosc::decoder::decode_udp;
 use rosc::OscPacket;
 use std::fs;
 use std::io::{BufRead, Write};
 use std::net::UdpSocket as StdUdpSocket;
+#[allow(unused_imports)]
+use std::process::Command;
 use std::process::{Command as StdCommand, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+#[allow(unused_imports)]
+use std::time::Duration;
 use tokio::process::Command as TokioCommand;
 
 #[tokio::main]
@@ -22,7 +25,9 @@ async fn main() -> anyhow::Result<()> {
         println!("\nCtrl+C received, killing all child processes...");
         let mut children = children_for_ctrlc.lock().unwrap();
         for child in children.iter_mut() {
-            let _ = child.kill();
+            // let _ = child.kill();
+            // Just drop the child, or call kill and drop
+            let _ = child.start_kill();
         }
         std::process::exit(1);
     })
@@ -30,14 +35,10 @@ async fn main() -> anyhow::Result<()> {
 
     let ghcup_path = ensure_ghcup_installed();
     // Ensure ghcup is installed
-    if ghcup_path.is_none() {
-        eprintln!("ghcup is not installed and could not be installed automatically.");
-        std::process::exit(1);
-    } else {
-        let ghcup = ghcup_path.unwrap();
+    if let Some(ghcup) = ghcup_path {
         // Install GHC and Cabal using ghcup
         let status = TokioCommand::new(&ghcup)
-            .args(&["install", "ghc"])
+            .args(["install", "ghc"])
             .status()
             .await?;
         if !status.success() {
@@ -46,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let status = TokioCommand::new(&ghcup)
-            .args(&["install", "cabal"])
+            .args(["install", "cabal"])
             .status()
             .await?;
         if !status.success() {
@@ -56,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
 
         // Set GHC and Cabal as default
         let status = TokioCommand::new(&ghcup)
-            .args(&["set", "ghc"])
+            .args(["set", "ghc"])
             .status()
             .await?;
         if !status.success() {
@@ -64,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
             std::process::exit(1);
         }
         let status = TokioCommand::new(&ghcup)
-            .args(&["set", "cabal"])
+            .args(["set", "cabal"])
             .status()
             .await?;
         if !status.success() {
@@ -87,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
 
         // Check if tidal is already installed
         let check_status = TokioCommand::new(&cabal)
-            .args(&["list", "--installed", "tidal"])
+            .args(["list", "--installed", "tidal"])
             .output()
             .await?;
         let output = String::from_utf8_lossy(&check_status.stdout);
@@ -151,6 +152,9 @@ async fn main() -> anyhow::Result<()> {
         } else {
             println!("tidal is already installed.");
         }
+    } else {
+        eprintln!("ghcup is not installed and could not be installed automatically.");
+        std::process::exit(1);
     }
 
     // Ensure SuperCollider is installed
@@ -213,11 +217,60 @@ async fn main() -> anyhow::Result<()> {
     )
     .replace("\\", "/");
     println!("TidalLooper path: {}", looper_path);
+
+    // On Windows, check if port 57120 is open and kill any process using it, retrying a few times
+    #[cfg(windows)]
+    {
+        let mut success = false;
+        for _ in 0..5 {
+            // Run: netstat -ano | findstr :57120
+            let output = Command::new("cmd")
+                .args(["/C", "netstat -ano | findstr :57120"])
+                .output()
+                .expect("Failed to run netstat");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut killed = false;
+            for line in stdout.lines() {
+                // Example:  UDP    0.0.0.0:57120         *:*                                    1234
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if let Some(pid_str) = parts.last() {
+                    if let Ok(pid) = pid_str.parse::<u32>() {
+                        println!("Killing process with PID {} using port 57120...", pid);
+                        let _ = Command::new("taskkill")
+                            .args(["/PID", &pid.to_string(), "/F"])
+                            .output();
+                        killed = true;
+                    }
+                }
+            }
+            // Try to bind to the port to check if it's free
+            match StdUdpSocket::bind("0.0.0.0:57120") {
+                Ok(_) => {
+                    success = true;
+                    break;
+                }
+                Err(_) => {
+                    if killed {
+                        println!("Waiting for port 57120 to be released...");
+                        std::thread::sleep(Duration::from_secs(1));
+                    } else {
+                        println!("Port 57120 is still in use, but no process found to kill.");
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
+                }
+            }
+        }
+        if !success {
+            eprintln!("Could not free up port 57120 after several attempts. Exiting.");
+            std::process::exit(1);
+        }
+    }
+
     let scd = format!(
         r#"
 (
 "[DEBUG] startup.scd begin".postln;
-s.options.numBuffers = 4096;
+s.options.numBuffers = 16384;
 s.options.memSize = 131072;
 s.options.maxNodes = 1024;
 s.options.maxSynthDefs = 1024;
@@ -310,7 +363,8 @@ if (SuperDirt.notNil) {{
                 }
             });
         }
-        // Do not wait; let process run in background
+        // Wait for process to avoid zombie
+        let _ = sc.wait();
     });
     println!("SuperCollider launched in background..");
     // 4. Send pattern to SuperCollider via file argument (optional, can be removed)
@@ -337,11 +391,7 @@ if (SuperDirt.notNil) {{
     let (tidal_tx, tidal_rx) = std::sync::mpsc::channel::<String>();
     thread::spawn(move || {
         let gpath = tidalcycles_rs::find::find_ghci();
-        if gpath.is_none() {
-            eprintln!("ghci is not installed or not found in PATH.");
-        } else {
-            let ghci = gpath.unwrap();
-
+        if let Some(ghci) = gpath {
             // Write modern BootTidal.hs for TidalCycles >=1.9
             let boot_code = r#"
             :set -fno-warn-orphans -Wno-type-defaults -XMultiParamTypeClasses -XOverloadedStrings
@@ -418,23 +468,60 @@ if (SuperDirt.notNil) {{
             }
             let _ = out_thread.join();
             let _ = err_thread.join();
+            // Wait for process to avoid zombie
+            let _ = tidal.wait();
+        } else {
+            eprintln!("ghci is not installed or not found in PATH.");
         }
     });
 
     // === SPAWN OSC SERVER FOR TIDAL CONTROL ===
     thread::spawn(move || {
-        let sock = StdUdpSocket::bind("0.0.0.0:57126").expect("could not bind UDP socket");
+        // Try to bind UDP socket, and if it fails, attempt to kill any process using the port (Windows only)
+        let sock = match StdUdpSocket::bind("0.0.0.0:57126") {
+            Ok(s) => s,
+            #[allow(unused_variables)]
+            Err(e) => {
+                #[cfg(windows)]
+                {
+                    println!("Port 57126 is in use, attempting to kill process using it (Windows only)...");
+                    // Run: netstat -ano | findstr :57126
+                    let output = Command::new("cmd")
+                        .args(["/C", "netstat -ano | findstr :57126"])
+                        .output()
+                        .expect("Failed to run netstat");
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        // Example line:  UDP    0.0.0.0:57126         *:*                                    1234
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if let Some(pid_str) = parts.last() {
+                            if let Ok(pid) = pid_str.parse::<u32>() {
+                                println!("Killing process with PID {} using port 57126...", pid);
+                                let _ = Command::new("taskkill")
+                                    .args(["/PID", &pid.to_string(), "/F"])
+                                    .output();
+                            }
+                        }
+                    }
+                    // Try binding again
+                    StdUdpSocket::bind("0.0.0.0:57126")
+                        .expect("could not bind UDP socket after killing process")
+                }
+                #[cfg(not(windows))]
+                {
+                    panic!("could not bind UDP socket: {}", e);
+                }
+            }
+        };
         let mut buf = [0u8; 2048];
         println!("OSC Tidal server listening on udp://0.0.0.0:57126 (send /tidal <string>)");
         loop {
             if let Ok((size, _addr)) = sock.recv_from(&mut buf) {
-                if let Ok((_, packet)) = decode_udp(&buf[..size]) {
-                    if let OscPacket::Message(msg) = packet {
-                        if msg.addr == "/tidal" {
-                            if let Some(rosc::OscType::String(code)) = msg.args.get(0) {
-                                println!("[OSC] Received Tidal code: {}", code);
-                                tidal_tx.send(code.clone()).ok();
-                            }
+                if let Ok((_, OscPacket::Message(msg))) = decode_udp(&buf[..size]) {
+                    if msg.addr == "/tidal" {
+                        if let Some(rosc::OscType::String(code)) = msg.args.first() {
+                            println!("[OSC] Received Tidal code: {}", code);
+                            tidal_tx.send(code.clone()).ok();
                         }
                     }
                 }
@@ -446,5 +533,4 @@ if (SuperDirt.notNil) {{
         // Keep the main thread alive
         thread::park();
     }
-    Ok(())
 }

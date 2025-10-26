@@ -10,7 +10,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let ghci = ghci_path.unwrap();
     let mut child = Command::new(&ghci)
-        .args(&["-package", "tidal", "-XOverloadedStrings"])
+        .args(["-package", "tidal", "-XOverloadedStrings"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())

@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::fs;
 use std::process::Command;
 
+#[allow(dead_code)]
 pub fn ensure_gh_installed() -> Option<std::path::PathBuf> {
     if let Ok(path) = which::which("gh") {
         Some(path)
@@ -50,8 +51,7 @@ pub fn ensure_supercollider_installed() -> Option<std::path::PathBuf> {
         for entry in entries.flatten() {
             let file_name = entry.file_name();
             let file_name = file_name.to_string_lossy();
-            if file_name.starts_with(sc_prefix) {
-                let version_str = &file_name[sc_prefix.len()..];
+            if let Some(version_str) = file_name.strip_prefix(sc_prefix) {
                 if let Ok(version) = semver::Version::parse(version_str) {
                     let exe_path = entry.path().join("sclang.exe");
                     if exe_path.exists() {
@@ -94,8 +94,7 @@ pub fn ensure_supercollider_installed() -> Option<std::path::PathBuf> {
                     for entry in entries.flatten() {
                         let file_name = entry.file_name();
                         let file_name = file_name.to_string_lossy();
-                        if file_name.starts_with(sc_prefix) {
-                            let version_str = &file_name[sc_prefix.len()..];
+                        if let Some(version_str) = file_name.strip_prefix(sc_prefix) {
                             if let Ok(version) = semver::Version::parse(version_str) {
                                 let exe_path = entry.path().join("sclang.exe");
                                 if exe_path.exists() {

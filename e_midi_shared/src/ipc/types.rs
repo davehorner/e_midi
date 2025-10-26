@@ -20,19 +20,14 @@ pub fn generate_event_id() -> EventId {
 }
 
 /// Application identifier in the e_* ecosystem
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum AppId {
     EMidi,
     EGrid,
     StateServer,
     Demo05, // Added for event listener demo
+    #[default]
     Unknown,
-}
-
-impl Default for AppId {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 /// Window state information

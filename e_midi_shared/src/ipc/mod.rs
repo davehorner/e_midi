@@ -39,8 +39,6 @@ impl fmt::Display for IpcError {
 }
 
 impl Error for IpcError {}
-
-use crate::ipc::events::IpcEventSender;
 use once_cell::sync::OnceCell;
 
 pub static IPC_EVENT_SENDER: OnceCell<IpcEventSender> = OnceCell::new();

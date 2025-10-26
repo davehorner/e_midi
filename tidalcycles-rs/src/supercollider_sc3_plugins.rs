@@ -9,11 +9,8 @@ fn download_sc3_plugins(tmp_dir: &str) -> io::Result<String> {
     // Ensure tmp_dir exists
     fs::create_dir_all(tmp_dir)?;
 
-    if let None = crate::install::ensure_gh_installed() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "gh CLI is not installed",
-        ));
+    if crate::install::ensure_gh_installed().is_none() {
+        return Err(io::Error::other("gh CLI is not installed"));
     }
 
     // Download the latest release zip using gh CLI with --clobber
@@ -32,10 +29,7 @@ fn download_sc3_plugins(tmp_dir: &str) -> io::Result<String> {
         .status()?;
 
     if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Failed to download sc3-plugins",
-        ));
+        return Err(io::Error::other("Failed to download sc3-plugins"));
     }
 
     // Find the downloaded zip file

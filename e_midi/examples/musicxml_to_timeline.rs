@@ -40,22 +40,21 @@ fn process_musicxml_file(path: &Path) -> Option<SongInfo> {
     };
     let mut tracks = Vec::new();
     let default_tempo = 120u32; // MusicXML may not always specify tempo
-    let mut part_idx = 0;
-    for part in &score.content.part {
+    for (part_idx, part) in score.content.part.iter().enumerate() {
         let mut note_count = 0;
         let mut min_pitch = 127u8;
         let mut max_pitch = 0u8;
         let mut sample_notes = Vec::new();
         let mut timeline = Vec::new();
         let mut current_time = 0u32;
-        let mut divisions = 1u32; // Default to 1 if not found
-                                  // Find divisions from the first measure with attributes
+        let mut _divisions = 1u32; // Default to 1 if not found
+                                   // Find divisions from the first measure with attributes
         for elem in &part.content {
             if let musicxml::elements::PartElement::Measure(measure) = elem {
                 for m_elem in &measure.content {
                     if let musicxml::elements::MeasureElement::Attributes(attr) = m_elem {
                         if let Some(div) = &attr.content.divisions {
-                            divisions = div.content.0 as u32;
+                            _divisions = div.content.0;
                         }
                     }
                 }
@@ -74,7 +73,7 @@ fn process_musicxml_file(path: &Path) -> Option<SongInfo> {
                                 normal.audible
                             {
                                 let step_val = step_to_midi(&pitch.content.step);
-                                let octave_val = pitch.content.octave.content.0 as u8;
+                                let octave_val = pitch.content.octave.content.0;
                                 let alter_val = pitch
                                     .content
                                     .alter
@@ -83,7 +82,7 @@ fn process_musicxml_file(path: &Path) -> Option<SongInfo> {
                                     .unwrap_or(0);
                                 let midi_pitch =
                                     (step_val as i8 + alter_val + (octave_val as i8) * 12) as u8;
-                                let duration = normal.duration.content.0 as u32;
+                                let duration = normal.duration.content.0;
                                 let velocity = 64u8; // MusicXML rarely encodes velocity
                                 let voice = 1u8; // Default to 1, as NormalInfo does not have a voice field
                                 timeline.push(NoteEvent {
@@ -130,7 +129,6 @@ fn process_musicxml_file(path: &Path) -> Option<SongInfo> {
             pitch_range: (min_pitch, max_pitch),
             sample_notes,
         });
-        part_idx += 1;
     }
     Some(SongInfo {
         filename: path.file_name().unwrap().to_string_lossy().to_string(),
@@ -174,7 +172,7 @@ fn main() {
     let mut all_arrays = Vec::new();
     for (idx, path) in xml_files.iter().enumerate() {
         if let Some(song) = process_musicxml_file(path) {
-            for (track_idx, track) in song.tracks.iter().enumerate() {
+            for (track_idx, _track) in song.tracks.iter().enumerate() {
                 let array_name = format!("SONG_{}_TRACK_{}", idx, track_idx);
                 writeln!(out, "pub const {}: &[NoteEvent] = &[", array_name).unwrap();
                 // Re-parse timeline for this track
@@ -193,7 +191,7 @@ fn main() {
                                         normal.audible
                                     {
                                         let step_val = step_to_midi(&pitch.content.step);
-                                        let octave_val = pitch.content.octave.content.0 as u8;
+                                        let octave_val = pitch.content.octave.content.0;
                                         let alter_val = pitch
                                             .content
                                             .alter
@@ -203,7 +201,7 @@ fn main() {
                                         let midi_pitch =
                                             (step_val as i8 + alter_val + (octave_val as i8) * 12)
                                                 as u8;
-                                        let duration = normal.duration.content.0 as u32;
+                                        let duration = normal.duration.content.0;
                                         let velocity = 64u8;
                                         let voice = 1u8;
                                         writeln!(out, "    NoteEvent {{ start_time: {}, duration: {}, pitch: {}, velocity: {}, voice: {} }},", local_time, duration, midi_pitch, velocity, voice).unwrap();

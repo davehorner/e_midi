@@ -5,7 +5,6 @@
 use iceoryx2::port::publisher::Publisher;
 use iceoryx2::prelude::*;
 // use iceoryx2::service::ipc::Service;
-use std::sync::Arc;
 
 use crate::ipc_protocol::PlaySongAtHeartbeat;
 

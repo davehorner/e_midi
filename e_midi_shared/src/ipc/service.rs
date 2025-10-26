@@ -30,7 +30,11 @@ pub struct ServiceRegistry {
     is_active: Arc<AtomicBool>,
     last_cleanup: Instant,
 }
-
+impl Default for ServiceRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl ServiceRegistry {
     pub fn new() -> Self {
         Self {

@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::env;
-use std::ffi::OsString;
 use std::fs;
 
 pub fn find_gh() -> Option<std::path::PathBuf> {
@@ -41,8 +40,7 @@ pub fn find_supercollider() -> Option<std::path::PathBuf> {
         for entry in entries.flatten() {
             let file_name = entry.file_name();
             let file_name = file_name.to_string_lossy();
-            if file_name.starts_with(sc_prefix) {
-                let version_str = &file_name[sc_prefix.len()..];
+            if let Some(version_str) = file_name.strip_prefix(sc_prefix) {
                 if let Ok(version) = semver::Version::parse(version_str) {
                     let exe_path = entry.path().join("sclang.exe");
                     if exe_path.exists() {
@@ -80,8 +78,7 @@ pub fn find_supercollider_scsynth() -> Option<std::path::PathBuf> {
         for entry in entries.flatten() {
             let file_name = entry.file_name();
             let file_name = file_name.to_string_lossy();
-            if file_name.starts_with(sc_prefix) {
-                let version_str = &file_name[sc_prefix.len()..];
+            if let Some(version_str) = file_name.strip_prefix(sc_prefix) {
                 if let Ok(version) = semver::Version::parse(version_str) {
                     let exe_path = entry.path().join("scsynth.exe");
                     if exe_path.exists() {
@@ -126,7 +123,7 @@ pub fn find_cabal() -> Option<std::path::PathBuf> {
 pub fn find_tools_set_env_path() {
     if let Some(sc_path) = find_supercollider() {
         if let Some(sc_dir) = sc_path.parent() {
-            let path_var = env::var_os("PATH").unwrap_or_else(|| OsString::new());
+            let path_var = env::var_os("PATH").unwrap_or_default();
             let paths_vec: Vec<std::path::PathBuf> = env::split_paths(&path_var).collect();
             let sc_dir_str = sc_dir.to_string_lossy().to_lowercase();
 

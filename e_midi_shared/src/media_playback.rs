@@ -20,14 +20,20 @@ pub fn play_media_file(
     if let Ok(mpv_path) = which("mpv") {
         println!("[e_midi] Using mpv for playback: {}", mpv_path.display());
         let (uri, tmp_path): (String, Option<std::path::PathBuf>) = if let Some(path) = file_path {
-            if path.starts_with("file://") {
-                (path[7..].to_string(), None) // strip file://
+            // Replace manual prefix strip:
+            // if path.starts_with("file://") {
+            //     (path[7..].to_string(), None) // strip file://
+            // }
+            if let Some(stripped) = path.strip_prefix("file://") {
+                (stripped.to_string(), None) // strip file://
             } else {
                 (path.to_string(), None)
             }
         } else {
             let tmp_dir = std::env::temp_dir();
-            let ext = song_name.rsplitn(2, '.').next().unwrap_or("dat");
+            // Replace unnecessary rsplitn:
+            // let ext = song_name.rsplitn(2, '.').next().unwrap_or("dat");
+            let ext = song_name.rsplit('.').next().unwrap_or("dat");
             let tmp_path = tmp_dir.join(format!(
                 "e_midi_tmp_{}.{}",
                 song_name.replace(' ', "_"),
@@ -66,6 +72,8 @@ pub fn play_media_file(
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
+            // Ensure child process is waited on to avoid zombies
+            let _ = child.wait();
             let _ = child.kill();
             if let Some(tmp_path) = tmp_path {
                 let _ = std::fs::remove_file(&tmp_path);

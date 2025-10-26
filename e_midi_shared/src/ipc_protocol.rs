@@ -17,7 +17,7 @@ pub struct MidiNoteEvent {
     pub _reserved: [u8; 4], // for alignment
 }
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ZeroCopySend)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, ZeroCopySend)]
 pub struct TrackVoiceOverride {
     /// Track index (0-based)
     pub track_index: u8,
@@ -28,7 +28,7 @@ pub struct TrackVoiceOverride {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ZeroCopySend)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, ZeroCopySend)]
 pub struct PlaySongAtHeartbeat {
     /// Song index to play
     pub song_index: u16,
@@ -44,30 +44,6 @@ pub struct PlaySongAtHeartbeat {
     pub _reserved: [u8; 3],
     /// Per-track voice overrides (max 16 tracks)
     pub track_overrides: [TrackVoiceOverride; 16],
-}
-
-impl Default for TrackVoiceOverride {
-    fn default() -> Self {
-        Self {
-            track_index: 0,
-            voice: 0,
-            _reserved: [0; 2],
-        }
-    }
-}
-
-impl Default for PlaySongAtHeartbeat {
-    fn default() -> Self {
-        Self {
-            song_index: 0,
-            start_heartbeat: 0,
-            stop_heartbeat: 0,
-            play_for_duration_ms: 0,
-            num_track_overrides: 0,
-            _reserved: [0; 3],
-            track_overrides: [TrackVoiceOverride::default(); 16],
-        }
-    }
 }
 
 /// SAFETY: These helpers allow zero-copy conversion between the struct and a byte array.

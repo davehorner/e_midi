@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/davehorner/e_midi/compare/tidalcycles-rs-v0.1.3...tidalcycles-rs-v0.1.4) - 2025-10-26
+
+### Added
+
+- *(tidalcycles-rs)* add SuperDirt installer + harden Tidal boot
+
 ## [0.1.3](https://github.com/davehorner/e_midi/compare/tidalcycles-rs-v0.1.2...tidalcycles-rs-v0.1.3) - 2025-10-25
 
 ### Other

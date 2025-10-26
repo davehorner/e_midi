@@ -98,6 +98,7 @@ pub struct XmlSongInfo {
     pub filename: String,
     pub name: String,
     pub tracks: Vec<XmlTrackInfo>,
+    #[allow(clippy::type_complexity)]
     pub track_notes: Vec<Vec<(u32, u32, u8, u8, u8)>>,
     pub default_tempo: u32,
     pub ticks_per_q: u32,

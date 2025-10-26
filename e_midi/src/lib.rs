@@ -1,3 +1,9 @@
+use e_midi_shared::play_media_file;
+use e_midi_shared::types::SongSource;
+use log::trace;
+use midir::MidiOutput;
+use midly::{MidiMessage, Smf, TrackEventKind};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::io::{stdin, stdout, Write};
@@ -8,12 +14,6 @@ use std::sync::{
 };
 use std::thread::{self, sleep, JoinHandle};
 use std::time::{Duration, Instant};
-use std::collections::HashSet;
-use e_midi_shared::play_media_file;
-use e_midi_shared::types::SongSource;
-use log::trace;
-use midir::MidiOutput;
-use midly::{MidiMessage, Smf, TrackEventKind};
 // Import the IPC module (now fixed)
 pub use e_midi_shared::ipc;
 pub use e_midi_shared::types::{Note, SongInfo, SongType, TrackInfo, XmlSongInfo, XmlTrackInfo};
@@ -186,7 +186,7 @@ impl MidiPlayer {
             }
         }
 
-        let port = ports.get(0).ok_or("missing MIDI output port")?;
+        let port = ports.first().ok_or("missing MIDI output port")?;
         let port_name = midi_out
             .port_name(port)
             .unwrap_or_else(|_| "Unknown".to_string());
@@ -372,7 +372,7 @@ impl MidiPlayer {
     /// Static method to play events in a background thread
     fn play_events_in_background(
         events: Vec<Note>,
-        tempo_bpm: u32,
+        _tempo_bpm: u32,
         midi_sender: std::sync::mpsc::Sender<MidiCommand>,
         stop_flag: Arc<AtomicBool>,
         playing_state: Arc<AtomicBool>,
@@ -477,7 +477,7 @@ impl MidiPlayer {
                 eprintln!("[IPC ERROR] Failed to send MidiNoteEvent: {:?}", e);
             }
 
-            if let Err(_) = midi_sender.send(MidiCommand::SendMessage(msg)) {
+            if midi_sender.send(MidiCommand::SendMessage(msg)).is_err() {
                 // MIDI thread is probably shutdown, exit gracefully
                 println!("[ERROR] Failed to send MIDI message, shutting down playback thread");
                 break;
@@ -569,9 +569,9 @@ impl MidiPlayer {
                 } => {
                     // --- IPC: publish note-on event ---
                     let event = e_midi_shared::ipc::Event::MidiNoteOn {
-                        channel: channel,
-                        pitch: pitch,
-                        velocity: velocity,
+                        channel,
+                        pitch,
+                        velocity,
                         timestamp: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
@@ -581,7 +581,7 @@ impl MidiPlayer {
                         "[IPC DEBUG] Publishing MidiNoteOn: channel={}, pitch={}, velocity={}",
                         channel, pitch, velocity
                     );
-                    let _ = e_midi_shared::ipc::IpcServiceManager::publish_ipc_event(event);
+                    e_midi_shared::ipc::IpcServiceManager::publish_ipc_event(event);
                     // if let Err(e) = res {
                     //     eprintln!("[IPC ERROR] Failed to publish MidiNoteOn: {}", e);
                     // }
@@ -611,13 +611,12 @@ impl MidiPlayer {
                 }
                 MidiCommand::Shutdown => {
                     println!("🎹 MIDI background thread shutting down");
-                    conn_opt = stop_playback(
+                    stop_playback(
                         &playback_stop_flag,
                         &mut playback_thread,
                         &mut current_playing,
                         &mut last_positions,
-                    )
-                    .or(conn_opt);
+                    );
                     break;
                 }
                 MidiCommand::Stop => {
@@ -765,7 +764,7 @@ impl MidiPlayer {
                             (conn, last_played_ms)
                         }));
                         // Send IPC events for the timeline in the parent thread (non-blocking, best-effort)
-                        for (t, on, chan, pitch, vel) in &timeline {
+                        for (_t, on, chan, pitch, vel) in &timeline {
                             let now = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .unwrap_or_default()
@@ -787,13 +786,12 @@ impl MidiPlayer {
             }
         }
         // Clean up on exit
-        conn_opt = stop_playback(
+        stop_playback(
             &playback_stop_flag,
             &mut playback_thread,
             &mut current_playing,
             &mut last_positions,
-        )
-        .or(conn_opt);
+        );
         println!("🎹 MIDI background thread finished");
     } // Send a MIDI command to the background thread
     fn send_midi_command(&self, command: MidiCommand) -> Result<(), Box<dyn Error>> {
@@ -820,7 +818,7 @@ impl MidiPlayer {
         }
 
         // Send all notes off command through the MIDI channel
-        if let Err(_) = self.send_midi_command(MidiCommand::AllNotesOff) {
+        if self.send_midi_command(MidiCommand::AllNotesOff).is_err() {
             eprintln!("Failed to send all notes off command");
         }
     }
@@ -1121,7 +1119,7 @@ impl MidiPlayer {
     pub fn play_random_song(&mut self) -> Result<(), Box<dyn Error>> {
         use rand::seq::SliceRandom;
         let mut indices: Vec<usize> = (0..self.get_total_song_count()).collect();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         indices.shuffle(&mut rng);
         for &song_index in &indices {
             self.current_song_index = Some(song_index);
@@ -1193,6 +1191,9 @@ impl MidiPlayer {
                 println!("🛑 Shutdown requested, exiting scan mode");
                 break;
             }
+            #[allow(clippy::needless_range_loop)]
+            // Clippy suggests using enumerate/iter_mut, but we need song_index for both indexing positions and as an argument to get_song().
+            // Refactoring to use enumerate or iter_mut causes borrow checker issues due to multiple mutable borrows of positions.
             for song_index in 0..songs_count {
                 if should_shutdown() {
                     println!("🛑 Shutdown requested during scan");
@@ -1881,11 +1882,9 @@ impl MidiPlayer {
                             _ => {}
                         }
                     }
-                    TrackEventKind::Meta(meta) => {
-                        if let midly::MetaMessage::Tempo(tempo) = meta {
-                            // Convert microseconds per quarter note to BPM
-                            default_tempo = 60_000_000 / tempo.as_int();
-                        }
+                    TrackEventKind::Meta(midly::MetaMessage::Tempo(tempo)) => {
+                        // Convert microseconds per quarter note to BPM
+                        default_tempo = 60_000_000 / tempo.as_int();
                     }
                     _ => {}
                 }
@@ -1930,12 +1929,14 @@ impl MidiPlayer {
             let mut current_time = 0u32;
             for event in track.iter() {
                 current_time += event.delta.as_int();
-                if let midly::TrackEventKind::Midi { message, .. } = &event.kind {
-                    if let midly::MidiMessage::NoteOn { .. } = message {
-                        // NoteOn event, check if this is the latest event
-                        if current_time > duration_ms {
-                            duration_ms = current_time;
-                        }
+                if let midly::TrackEventKind::Midi {
+                    message: midly::MidiMessage::NoteOn { .. },
+                    ..
+                } = &event.kind
+                {
+                    // NoteOn event, check if this is the latest event
+                    if current_time > duration_ms {
+                        duration_ms = current_time;
                     }
                 }
             }
@@ -1971,83 +1972,78 @@ impl MidiPlayer {
             let dynamic_index = song_index - static_count;
             println!(
                 "🔄 Fetching events for dynamic song index {} (global index {})",
-                dynamic_index,
-                song_index
+                dynamic_index, song_index
             );
             self.get_events_for_dynamic_song(dynamic_index, track_indices, tempo_bpm)
         }
     }
 
     /// Get events for dynamic songs
-fn get_events_for_dynamic_song(
-    &self,
-    dynamic_song_index: usize,
-    track_indices: &[usize],
-    fallback_bpm: u32,
-) -> Vec<Note> {
-    if dynamic_song_index >= self.dynamic_midi_data.len() {
-        println!("❌ Invalid dynamic song index: {}", dynamic_song_index);
-        return Vec::new();
-    }
-
-    let midi_data = &self.dynamic_midi_data[dynamic_song_index];
-    let smf = match Smf::parse(midi_data) {
-        Ok(smf) => smf,
-        Err(err) => {
-            println!("❌ Failed to parse MIDI data: {:?}", err);
+    fn get_events_for_dynamic_song(
+        &self,
+        dynamic_song_index: usize,
+        track_indices: &[usize],
+        fallback_bpm: u32,
+    ) -> Vec<Note> {
+        if dynamic_song_index >= self.dynamic_midi_data.len() {
+            println!("❌ Invalid dynamic song index: {}", dynamic_song_index);
             return Vec::new();
         }
-    };
 
-    let ticks_per_q = match smf.header.timing {
-        midly::Timing::Metrical(t) => t.as_int() as u32,
-        other => {
-            println!(
-                "⚠️  Non-metrical timing: {:?}, using fallback 96 ticks_per_q",
-                other
-            );
-            96
-        }
-    };
+        let midi_data = &self.dynamic_midi_data[dynamic_song_index];
+        let smf = match Smf::parse(midi_data) {
+            Ok(smf) => smf,
+            Err(err) => {
+                println!("❌ Failed to parse MIDI data: {:?}", err);
+                return Vec::new();
+            }
+        };
 
-    // Extract tempo from meta events, fallback to provided BPM
-    let mut tempo_usec_per_q = 500_000; // 120 BPM default
-    for track in &smf.tracks {
-        for event in track.iter() {
-            if let TrackEventKind::Meta(midly::MetaMessage::Tempo(t)) = event.kind {
-                tempo_usec_per_q = t.as_int();
+        let ticks_per_q = match smf.header.timing {
+            midly::Timing::Metrical(t) => t.as_int() as u32,
+            other => {
+                println!(
+                    "⚠️  Non-metrical timing: {:?}, using fallback 96 ticks_per_q",
+                    other
+                );
+                96
+            }
+        };
+
+        // Extract tempo from meta events, fallback to provided BPM
+        let mut tempo_usec_per_q = 500_000; // 120 BPM default
+        for track in &smf.tracks {
+            for event in track.iter() {
+                if let TrackEventKind::Meta(midly::MetaMessage::Tempo(t)) = event.kind {
+                    tempo_usec_per_q = t.as_int();
+                    break;
+                }
+            }
+            if tempo_usec_per_q != 500_000 {
                 break;
             }
         }
-        if tempo_usec_per_q != 500_000 {
-            break;
-        }
-    }
 
-    let bpm = 60_000_000 / tempo_usec_per_q;
-    let tempo_usec_per_q = if fallback_bpm > 0 {
-        60_000_000 / fallback_bpm
-    } else {
-        tempo_usec_per_q
-    };
+        let _bpm = 60_000_000 / tempo_usec_per_q;
+        let tempo_usec_per_q = if fallback_bpm > 0 {
+            60_000_000 / fallback_bpm
+        } else {
+            tempo_usec_per_q
+        };
 
-    // If no track indices given, auto-select best ones
-    let selected_indices = if track_indices.is_empty() {
-        // If no track indices given, select all tracks (do not filter)
-        let selected = (0..smf.tracks.len()).collect::<Vec<_>>();
-        selected
-    } else {
-        println!(
-            "🔄 Using provided track indices: {:?}",
-            track_indices
-        );
-        //track_indices.to_vec()
-        (0..smf.tracks.len()).collect::<Vec<_>>()
-    };
+        // If no track indices given, auto-select best ones
+        let selected_indices = if track_indices.is_empty() {
+            // If no track indices given, select all tracks (do not filter)
+            (0..smf.tracks.len()).collect::<Vec<_>>()
+        } else {
+            println!("🔄 Using provided track indices: {:?}", track_indices);
+            //track_indices.to_vec()
+            (0..smf.tracks.len()).collect::<Vec<_>>()
+        };
 
-    let mut events = Vec::new();
-    println!("{:?}",selected_indices);
-    // Debug: Print all tracks in the SMF for inspection
+        let mut events = Vec::new();
+        println!("{:?}", selected_indices);
+        // Debug: Print all tracks in the SMF for inspection
         let debug_path = format!("debug_midi_tracks_{}.txt", dynamic_song_index);
         if let Ok(mut file) = std::fs::File::create(&debug_path) {
             let _ = writeln!(file, "{:#?}", smf.tracks);
@@ -2056,78 +2052,91 @@ fn get_events_for_dynamic_song(
             println!("Debug: Failed to write SMF tracks to file");
         }
 
-    //std::process::exit(0);
-    for &track_index in &selected_indices {
-        if let Some(track) = smf.tracks.get(track_index) {
-            println!("🎵 Processing track {} with {} events", track_index, track.len());
+        //std::process::exit(0);
+        for &track_index in &selected_indices {
+            if let Some(track) = smf.tracks.get(track_index) {
+                println!(
+                    "🎵 Processing track {} with {} events",
+                    track_index,
+                    track.len()
+                );
 
-            let mut current_tick = 0u32;
-            let mut note_ons = std::collections::HashMap::new();
-println!("🔄 Processing track {} with {} events", track_index, track.len());
-            for event in track {
-                let delta = event.delta.as_int();
-                current_tick = current_tick.wrapping_add(delta);
-println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
-                if let TrackEventKind::Midi { channel, message } = &event.kind {
-                    let ch = channel.as_int();
-                    match message {
-                        MidiMessage::NoteOn { key, vel } if *vel > 0 => {
-                            note_ons.insert((ch, key.as_int()), current_tick);
-                        }
-                        MidiMessage::NoteOff { key, .. }
-                        | MidiMessage::NoteOn { key, vel: _ } => {
-                            let pitch = key.as_int();
-                            if let Some(start_tick) = note_ons.remove(&(ch, pitch)) {
-                                let dur_ticks = current_tick.saturating_sub(start_tick);
-                                let start_ms = (start_tick as u64 * tempo_usec_per_q as u64
-                                    / ticks_per_q as u64
-                                    / 1000) as u32;
-                                let dur_ms = (dur_ticks as u64 * tempo_usec_per_q as u64
-                                    / ticks_per_q as u64
-                                    / 1000)
-                                    .max(50) as u32;
-
-                                events.push(Note {
-                                    start_ms,
-                                    dur_ms,
-                                    chan: ch,
-                                    pitch,
-                                    vel: 64,
-                                    track: track_index as u8,
-                                });
+                let mut current_tick = 0u32;
+                let mut note_ons = std::collections::HashMap::new();
+                println!(
+                    "🔄 Processing track {} with {} events",
+                    track_index,
+                    track.len()
+                );
+                for event in track {
+                    let delta = event.delta.as_int();
+                    current_tick = current_tick.wrapping_add(delta);
+                    println!(
+                        "{:?} - Delta: {}, Current Tick: {}",
+                        event, delta, current_tick
+                    );
+                    if let TrackEventKind::Midi { channel, message } = &event.kind {
+                        let ch = channel.as_int();
+                        match message {
+                            MidiMessage::NoteOn { key, vel } if *vel > 0 => {
+                                note_ons.insert((ch, key.as_int()), current_tick);
                             }
-                        }
-                        _ => {
-                            println!(
-                                "⚠️  Unsupported MIDI message in track {}: {:?}",
-                                track_index, message
-                            );
+                            MidiMessage::NoteOff { key, .. }
+                            | MidiMessage::NoteOn { key, vel: _ } => {
+                                let pitch = key.as_int();
+                                if let Some(start_tick) = note_ons.remove(&(ch, pitch)) {
+                                    let dur_ticks = current_tick.saturating_sub(start_tick);
+                                    let start_ms = (start_tick as u64 * tempo_usec_per_q as u64
+                                        / ticks_per_q as u64
+                                        / 1000)
+                                        as u32;
+                                    let dur_ms = (dur_ticks as u64 * tempo_usec_per_q as u64
+                                        / ticks_per_q as u64
+                                        / 1000)
+                                        .max(50)
+                                        as u32;
+
+                                    events.push(Note {
+                                        start_ms,
+                                        dur_ms,
+                                        chan: ch,
+                                        pitch,
+                                        vel: 64,
+                                        track: track_index as u8,
+                                    });
+                                }
+                            }
+                            _ => {
+                                println!(
+                                    "⚠️  Unsupported MIDI message in track {}: {:?}",
+                                    track_index, message
+                                );
+                            }
                         }
                     }
                 }
-            }
 
-            // Handle dangling NoteOns
-            for ((ch, pitch), start_tick) in note_ons {
-                let start_ms = (start_tick as u64 * tempo_usec_per_q as u64
-                    / ticks_per_q as u64
-                    / 1000) as u32;
-                events.push(Note {
-                    start_ms,
-                    dur_ms: 500,
-                    chan: ch,
-                    pitch,
-                    vel: 127,
-                    track: track_index as u8,
-                });
+                // Handle dangling NoteOns
+                for ((ch, pitch), start_tick) in note_ons {
+                    let start_ms = (start_tick as u64 * tempo_usec_per_q as u64
+                        / ticks_per_q as u64
+                        / 1000) as u32;
+                    events.push(Note {
+                        start_ms,
+                        dur_ms: 500,
+                        chan: ch,
+                        pitch,
+                        vel: 127,
+                        track: track_index as u8,
+                    });
+                }
             }
         }
-    }
 
-    events.sort_by_key(|n| n.start_ms);
-    println!("✅ Emitted {} note events", events.len());
-    events
-}
+        events.sort_by_key(|n| n.start_ms);
+        println!("✅ Emitted {} note events", events.len());
+        events
+    }
     /// Get or create an IPC event subscriber for a given source AppId
     pub fn get_event_subscriber(
         &mut self,
@@ -2155,7 +2164,7 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
         notes: Vec<e_midi_shared::types::Note>,
         tempo_bpm: Option<u32>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let tempo = tempo_bpm.unwrap_or(120);
+        let _tempo = tempo_bpm.unwrap_or(120);
         // Use the same logic as play_events_in_background, but for the provided notes
         let midi_sender = self.midi_sender.clone();
         let stop_flag = Arc::clone(&self.playback_stop_flag);
@@ -2172,7 +2181,7 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                 chan: u8,
                 p: u8,
                 v: u8,
-                track: u8,
+                // track: u8, // removed unused field
             }
             let mut timeline = Vec::with_capacity(notes.len() * 2);
             for n in &notes {
@@ -2182,7 +2191,6 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                     chan: n.chan,
                     p: n.pitch,
                     v: n.vel,
-                    track: n.track,
                 });
                 timeline.push(Scheduled {
                     t: n.start_ms + n.dur_ms,
@@ -2190,7 +2198,6 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                     chan: n.chan,
                     p: n.pitch,
                     v: 0,
-                    track: n.track,
                 });
             }
             timeline.sort_by_key(|e| e.t);
@@ -2237,7 +2244,7 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                                 .iter()
                                 .map(|n| n.chan)
                                 .next()
-                                .or_else(|| track.channels.get(0).copied())
+                                .or_else(|| track.channels.first().copied())
                                 .unwrap_or(0);
                             let msg = vec![0xC0 | note_channel, program];
                             println!(
@@ -2325,9 +2332,9 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                     } else if input == "n" {
                         next_clone.store(true, Ordering::SeqCst);
                         break;
-                    } else if input.starts_with("t") {
+                    } else if let Some(stripped) = input.strip_prefix("t") {
                         // Handle both "t" alone and "t<number>" (e.g. "t120")
-                        let tempo_str = if input == "t" {
+                        let tempo_str = if stripped.is_empty() {
                             // Prompt for tempo input
                             println!("Enter new tempo (BPM): ");
                             let mut tempo_input = String::new();
@@ -2338,7 +2345,7 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                             }
                         } else {
                             // Extract tempo from "t<number>" format
-                            input[1..].to_string()
+                            stripped.to_string()
                         };
                         if let Ok(new_tempo) = tempo_str.parse::<u32>() {
                             if new_tempo > 0 && new_tempo <= 500 {
@@ -2483,7 +2490,6 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
             }
         }
 
-        println!("");
         println!("🎼 Playbook loop finished, sending all notes off");
         for channel in 0..16 {
             self.send_midi_command(MidiCommand::SendMessage(vec![0xB0 | channel, 123, 0]))?;
@@ -2517,6 +2523,7 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
         )
     }
 
+    #[allow(dead_code)]
     fn play_events_with_tempo_control_and_scan_limit_non_interactive(
         &mut self,
         events: &[Note],
@@ -2606,8 +2613,8 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                         } else if input == "n" {
                             next_clone.store(true, Ordering::SeqCst);
                             break;
-                        } else if input.starts_with("t") {
-                            let tempo_str = if input == "t" {
+                        } else if let Some(stripped) = input.strip_prefix("t") {
+                            let tempo_str = if stripped.is_empty() {
                                 println!("Enter new tempo (BPM): ");
                                 let mut tempo_input = String::new();
                                 if stdin.read_line(&mut tempo_input).is_ok() {
@@ -2616,7 +2623,7 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                                     continue;
                                 }
                             } else {
-                                input[1..].to_string()
+                                stripped.to_string()
                             };
                             if let Ok(new_tempo) = tempo_str.parse::<u32>() {
                                 if new_tempo > 0 && new_tempo <= 500 {
@@ -2707,7 +2714,6 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
         }
 
         // Print final newline to end the progress line
-        println!("");
 
         // Send all notes off
         for channel in 0..16 {
@@ -3106,15 +3112,10 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
             );
         }
         // Determine resume position
-        let start_ms = if let Some(pos) = position_ms {
-            pos
-        } else if let Some(ms) = self.elapsed_ms {
-            ms
-        } else if let Some(tick) = self.current_tick {
-            tick
-        } else {
-            0
-        };
+        let start_ms = position_ms
+            .or(self.elapsed_ms)
+            .or(self.current_tick)
+            .unwrap_or_default();
         // Snap to the closest event (not just >= start_ms)
         let resume_event_time = {
             if events.is_empty() {
@@ -3124,11 +3125,7 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                 let mut min_diff = u32::MAX;
                 let mut closest = events[0].start_ms;
                 for e in &events {
-                    let diff = if e.start_ms > start_ms {
-                        e.start_ms - start_ms
-                    } else {
-                        start_ms - e.start_ms
-                    };
+                    let diff = e.start_ms.abs_diff(start_ms);
                     if diff < min_diff {
                         min_diff = diff;
                         closest = e.start_ms;
@@ -3256,7 +3253,6 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
         playing_state: Arc<AtomicBool>,
         start_ms: u32,
     ) -> Result<(), Box<dyn Error>> {
-
         #[derive(Copy, Clone, Debug)]
         enum Kind {
             On,
@@ -3269,7 +3265,7 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
             chan: u8,
             p: u8,
             v: u8,
-            track: u8, // propagate track for debug
+            // track: u8, // removed unused field
         }
         let mut timeline = Vec::with_capacity(events.len() * 2);
         for n in &events {
@@ -3279,7 +3275,6 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                 chan: n.chan,
                 p: n.pitch,
                 v: n.vel,
-                track: n.track,
             });
             timeline.push(Scheduled {
                 t: n.start_ms + n.dur_ms,
@@ -3287,7 +3282,6 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                 chan: n.chan,
                 p: n.pitch,
                 v: 0,
-                track: n.track,
             });
         }
         timeline.sort_by_key(|e| e.t);
@@ -3373,7 +3367,7 @@ println!("{:?} - Delta: {}, Current Tick: {}", event, delta, current_tick);
                 }
             }
 
-            if let Err(_) = midi_sender.send(MidiCommand::SendMessage(msg)) {
+            if midi_sender.send(MidiCommand::SendMessage(msg)).is_err() {
                 // MIDI thread is probably shutdown, exit gracefully
                 break;
             }
@@ -3452,7 +3446,7 @@ pub fn xml_song_to_song_info(xml: &XmlSongInfo) -> SongInfo {
         let chan = xml
             .tracks
             .get(track_idx)
-            .and_then(|t| t.channels.get(0))
+            .and_then(|t| t.channels.first())
             .copied()
             .unwrap_or(0);
         for &(start, dur, _voice, midi_pitch, velocity) in timeline {

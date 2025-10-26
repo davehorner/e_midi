@@ -1,9 +1,8 @@
 //! Subscriber module for receiving events via iceoryx2
 //!
 //! Provides lock-free, zero-copy subscription to events from publishers
-use iceoryx2::prelude::*;
 use iceoryx2::port::subscriber::Subscriber;
-use std::collections::VecDeque;
+use iceoryx2::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,7 +16,7 @@ pub struct EventSubscriber {
     subscriber: Subscriber<ipc::Service, IpcPayload, ()>,
     app_id: AppId,
     is_active: Arc<AtomicBool>,
-    event_buffer: VecDeque<Event>,
+    //event_buffer: VecDeque<Event>,
     last_heartbeat: Instant,
 }
 
@@ -30,14 +29,14 @@ impl EventSubscriber {
         // Create node (suppress debug output)
         let node = NodeBuilder::new().create::<ipc::Service>().map_err(|e| {
             eprintln!("[IPC SUBSCRIBER ERROR] Node creation failed: {:?}", e);
-            IpcError::NodeCreation(format!("Node creation failed"))
+            IpcError::NodeCreation("Node creation failed".to_string())
         })?;
 
         // Try to open existing service first, if that fails, return error (do not create)
         let service = match node
             .service_builder(&service_name.as_str().try_into().map_err(|e| {
                 eprintln!("[IPC SUBSCRIBER ERROR] Invalid service name: {:?}", e);
-                IpcError::ServiceCreation(format!("Invalid service name"))
+                IpcError::ServiceCreation("Invalid service name".to_string())
             })?)
             .publish_subscribe::<IpcPayload>()
             .open()
@@ -59,14 +58,14 @@ impl EventSubscriber {
                 "[IPC SUBSCRIBER ERROR] Failed to create subscriber: {:?}",
                 e
             );
-            IpcError::SubscriberCreation(format!("Failed to create subscriber"))
+            IpcError::SubscriberCreation("Failed to create subscriber".to_string())
         })?;
 
         Ok(Self {
             subscriber,
             app_id: subscriber_app,
             is_active: Arc::new(AtomicBool::new(true)),
-            event_buffer: VecDeque::new(),
+            //event_buffer: VecDeque::new(),
             last_heartbeat: Instant::now(),
         })
     }
@@ -82,7 +81,7 @@ impl EventSubscriber {
         while let Some(sample) = self
             .subscriber
             .receive()
-            .map_err(|_| IpcError::ReceiveError(format!("Failed to receive")))?
+            .map_err(|_| IpcError::ReceiveError("Failed to receive".to_string()))?
         {
             sample_count += 1;
             println!("[IPC SUBSCRIBER DEBUG] Received sample #{}", sample_count);
@@ -157,7 +156,8 @@ impl EventSubscriber {
     }
 }
 
-impl<'a> Drop for EventSubscriber {
+// Remove unused lifetime from Drop impl:
+impl Drop for EventSubscriber {
     fn drop(&mut self) {
         self.deactivate();
     }

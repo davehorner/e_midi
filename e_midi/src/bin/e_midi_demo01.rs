@@ -4,15 +4,21 @@
 // This example is for Windows only.
 // It requires the e_grid and e_midi crates to be added to your Cargo.toml file.
 
+#[allow(unused_imports)]
 use dashmap::DashMap;
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 use e_grid::ipc_protocol::WindowFocusEvent;
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 use e_grid::ipc_server::start_server;
 #[cfg(target_os = "windows")]
 use e_grid::GridClient;
+#[allow(unused_imports)]
 use e_midi::MidiPlayer;
+#[allow(unused_imports)]
 use std::sync::atomic::{AtomicUsize, Ordering};
+#[allow(unused_imports)]
 use std::sync::Arc;
 #[cfg(target_os = "windows")]
 use winapi::shared::windef::POINT;
@@ -50,6 +56,7 @@ fn get_window_class_and_title(hwnd: u64) -> (String, String) {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn is_hwnd_or_ancestor(
     target: winapi::shared::windef::HWND,
     mut hwnd: winapi::shared::windef::HWND,
@@ -64,6 +71,7 @@ fn is_hwnd_or_ancestor(
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn is_hwnd_foreground_and_mouse_over(hwnd: u64) -> bool {
     use winapi::shared::windef::HWND;
     let hwnd = hwnd as isize as HWND;
@@ -158,7 +166,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get the MIDI command sender from the player (mpsc::Sender)
     let midi_sender = Arc::new(midi_player.get_command_sender());
     // Set up move/resize START callback
-    let song_map_for_start = Arc::clone(&song_map);
+    let _song_map_for_start = Arc::clone(&song_map);
     let midi_sender_start = Arc::clone(&midi_sender);
     client
         .set_move_resize_start_callback(move |e| {

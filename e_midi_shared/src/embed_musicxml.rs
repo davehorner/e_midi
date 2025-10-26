@@ -40,9 +40,9 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
                 let mut track_infos = Vec::new();
                 let mut all_track_notes = Vec::new();
                 let default_tempo = 120u32;
-                let mut part_idx = 0;
+                // let mut part_idx = 0;
                 let mut ticks_per_q = 1u32;
-                for part in &score.content.part {
+                for (part_idx, part) in score.content.part.iter().enumerate() {
                     // Get part id from attributes
                     let part_id = part.attributes.id.0.clone();
                     // Look up instrument name/program from mapping
@@ -67,8 +67,11 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
                             for m_elem in &measure.content {
                                 if let musicxml::elements::MeasureElement::Attributes(attr) = m_elem
                                 {
+                                    // if let Some(div) = &attr.content.divisions {
+                                    //     divisions = div.content.0 as u32;
+                                    // }
                                     if let Some(div) = &attr.content.divisions {
-                                        divisions = div.content.0 as u32;
+                                        divisions = div.content.0;
                                     }
                                 }
                             }
@@ -91,7 +94,8 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
                                             normal.audible
                                         {
                                             let step_val = step_to_midi(&pitch.content.step);
-                                            let octave_val = pitch.content.octave.content.0 as u8;
+                                            // let octave_val = pitch.content.octave.content.0 as u8;
+                                            let octave_val = pitch.content.octave.content.0;
                                             let alter_val = pitch
                                                 .content
                                                 .alter
@@ -102,7 +106,8 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
                                                 + alter_val
                                                 + ((octave_val as i8 + 1) * 12))
                                                 as u8;
-                                            let duration = normal.duration.content.0 as u32;
+                                            // let duration = normal.duration.content.0 as u32;
+                                            let duration = normal.duration.content.0;
                                             let velocity = 64u8;
                                             // Use the MusicXML voice field if present, otherwise default to 1
                                             let voice = note
@@ -135,9 +140,9 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
                         }
                     }
                     // Assign default channel 0 if none specified (MusicXML usually doesn't specify channels)
-                    let mut channels = Vec::new();
-                    // If you ever parse real channel info, push it here. For now, always push 0.
-                    channels.push(0);
+                    // let mut channels = Vec::new();
+                    // channels.push(0);
+                    let channels = vec![0];
                     track_infos.push(XmlTrackInfo {
                         index: part_idx,
                         name: instrument_name,
@@ -148,7 +153,6 @@ pub fn extract_musicxml_songs(xml_dir: &Path) -> Vec<XmlSongInfo> {
                         channels,
                     });
                     all_track_notes.push(timeline);
-                    part_idx += 1;
                 }
                 let filename = path.file_name().unwrap().to_str().unwrap().to_string();
                 let song_name = filename.replace(".xml", "").replace("_", " ");
@@ -316,7 +320,7 @@ fn instrument_name_to_program(name: &str) -> u8 {
     }
 }
 
-/// Extracts a mapping from part id to (instrument name, MIDI program) from the <part-list> section of a MusicXML file.
+/// Extracts a mapping from part id to (instrument name, MIDI program) from the `&lt;part-list&gt;` section of a MusicXML file.
 pub fn extract_part_list_mapping(xml_path: &Path) -> HashMap<String, (String, u8)> {
     let mut mapping = HashMap::new();
     let file = match std::fs::File::open(xml_path) {
@@ -366,10 +370,12 @@ pub fn extract_part_list_mapping(xml_path: &Path) -> HashMap<String, (String, u8
                             let mut name =
                                 current_name.take().unwrap_or_else(|| "Unknown".to_string());
                             let mut program = instrument_name_to_program(&name);
-                            if program == 0 && name.to_ascii_lowercase() != "acoustic grand piano" {
+                            // if program == 0 && name.to_ascii_lowercase() != "acoustic grand piano" {
+                            if program == 0 && !name.eq_ignore_ascii_case("acoustic grand piano") {
                                 if let Some(vname) = current_virtual_name.take() {
                                     let vprog = instrument_name_to_program(&vname);
-                                    if vprog != 0 || vname.to_ascii_lowercase() == "flute" {
+                                    // if vprog != 0 || vname.to_ascii_lowercase() == "flute" {
+                                    if vprog != 0 || vname.eq_ignore_ascii_case("flute") {
                                         name = vname;
                                         program = vprog;
                                     }

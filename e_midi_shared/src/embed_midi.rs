@@ -21,6 +21,7 @@ pub struct MidiSongInfo {
     pub tracks: Vec<MidiTrackInfo>,
     pub default_tempo: u32,
     pub ticks_per_q: u32,
+    #[allow(clippy::type_complexity)]
     pub track_notes: Vec<Vec<(u32, u32, u8, u8, u8, usize)>>, // Add track index to tuple
 }
 

@@ -3,7 +3,6 @@
 //! Events are designed to be lightweight, serializable, and suitable for
 //! lock-free transmission between processes.
 
-use super::types::*;
 use crate::ipc::types::{generate_event_id, AppId, EventId};
 use serde::{Deserialize, Serialize};
 /// Base event trait for all IPC events

@@ -10,9 +10,13 @@ use e_grid::ipc_protocol::WindowFocusEvent;
 use e_grid::ipc_server::start_server;
 #[cfg(target_os = "windows")]
 use e_grid::GridClient;
+#[allow(unused_imports)]
 use e_midi::MidiPlayer;
+#[allow(unused_imports)]
 use std::collections::HashMap;
+#[allow(unused_imports)]
 use std::sync::{Arc, Mutex};
+#[allow(unused_imports)]
 use std::thread;
 #[cfg(target_os = "windows")]
 use winapi::shared::windef::POINT;
@@ -24,6 +28,7 @@ use winapi::um::winuser::{GetClassNameW, GetWindowTextW};
 use winapi::um::winuser::{GetCursorPos, GetForegroundWindow, WindowFromPoint};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum MidiCommand {
     Start(u64, usize), // HWND, song_index
     Stop(u64),
@@ -57,6 +62,7 @@ fn get_window_class_and_title(hwnd: u64) -> (String, String) {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn is_hwnd_or_ancestor(
     target: winapi::shared::windef::HWND,
     mut hwnd: winapi::shared::windef::HWND,
@@ -71,6 +77,7 @@ fn is_hwnd_or_ancestor(
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn is_hwnd_foreground_and_mouse_over(hwnd: u64) -> bool {
     use winapi::shared::windef::HWND;
     let hwnd = hwnd as isize as HWND;
